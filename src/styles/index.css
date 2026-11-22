@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Noto Sans TC', system-ui, -apple-system, sans-serif;
+    background-color: #f4f6f8;
+    color: #1e293b;
+  }
+}
+
+/* Details / Summary Accordion Custom Styling */
+details > summary {
+  list-style: none;
+}
+details > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* 螢幕檢視模式下，未展開的折疊面板隱藏內容 */
+@media screen {
+  .accordion-collapsed {
+    display: none !important;
+  }
+}
+
+/* Print (@media print) Dedicated Rules */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+
+  html,
+  body,
+  #root,
+  #app-shell,
+  #generator-view,
+  #app-main,
+  #app-grid,
+  #guide-panel,
+  #guide-scroll-viewport,
+  #guide-preview-container {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    color: #1c1917 !important;
+    height: auto !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .no-print,
+  #hub-view,
+  #mini-nav,
+  #sticky-top-header,
+  #studio-panel,
+  #preview-modal-overlay,
+  #generatorActionBar {
+    display: none !important;
+  }
+
+  details,
+  .print-accordion {
+    display: block !important;
+    overflow: visible !important;
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+  }
+
+  /* 列印時無條件強制展開所有折疊區塊內容 */
+  .accordion-content,
+  .accordion-collapsed {
+    display: block !important;
+    visibility: visible !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .print-break-inside-avoid {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  details > summary {
+    border-bottom: 1px solid #e7e5e4 !important;
+    break-after: avoid !important;
+    page-break-after: avoid !important;
+  }
+
+  [contenteditable="true"] {
+    outline: none !important;
+    background: transparent !important;
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "旅行手冊一鍵產生器",
+  "short_name": "旅遊手冊",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fafaf9",
+  "theme_color": "#b45309",
+  "description": "雙模運行、支援離線單檔 HTML 匯出與雲端同步的旅行手冊產生器"
+}
+
