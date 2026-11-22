@@ -29,7 +29,7 @@
 - [x] 在專案大廳頂部新增 **「⚙️ 設定」** 按鈕與全域設定彈窗 ([UserSettingsModal.tsx](file:///d:/AnnaDome/src/components/hub/UserSettingsModal.tsx))：
     - [x] 提供「預設資料儲存位置」切換設定（每位會員獨立保存自己的設定檔 `user_settings_<userId>`）：
         - [x] **模式 A：本機儲存位置**（使用瀏覽器本地儲存 / 綁定電腦本機備份資料夾）
-        - [x] **模式 B：Firebase 雲端資料庫位置**（於設定中統一填寫並保存該會員專屬的 `Firebase Realtime Database 網址`）
+        - [x] **模式 B：Firebase 雲端資料庫位置**（僅管理者 `admin` 帳號預設綁定專屬雲端資料庫 `https://travel-handbook-241bb-default-rtdb.firebaseio.com/`，讓管理者於電腦與手機登入即自動跨裝置同步；其他一般使用者帳號預設為本機儲存且 Firebase 網址欄位為空白，需自行填寫自己的 Firebase 網址，不占用管理者雲端空間）
 - [x] 精簡各專案產生器表單 ([CloudConfigSection.tsx](file:///d:/AnnaDome/src/components/studio/CloudConfigSection.tsx))：
     - [x] **移除**各專案表單內的「Firebase Realtime Database 網址」輸入框
     - [x] 每次建立或開啟專案時，系統自動引用該會員在「⚙️ 設定」中儲存的 Firebase 網址設定檔

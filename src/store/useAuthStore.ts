@@ -20,6 +20,8 @@ const SETTINGS_PREFIX = 'user_settings_';
 
 export const ADMIN_USER_ID = 'u_admin';
 export const ADMIN_USERNAME = 'admin';
+export const ADMIN_DEFAULT_FIREBASE_DB_URL =
+  'https://travel-handbook-241bb-default-rtdb.firebaseio.com/';
 
 function safeGet(key: string): string | null {
   try {
@@ -95,15 +97,24 @@ function loadUsers(): UserAccount[] {
 }
 
 export function loadUserSettings(userId: string): UserStorageSettings {
+  const isAdmin = userId === ADMIN_USER_ID;
   const raw = safeGet(SETTINGS_PREFIX + userId);
   const defaults: UserStorageSettings = {
-    storageMode: 'local',
-    firebaseDbUrl: '',
+    storageMode: isAdmin ? 'firebase' : 'local',
+    firebaseDbUrl: isAdmin ? ADMIN_DEFAULT_FIREBASE_DB_URL : '',
     localFolderName: '',
   };
   if (!raw) return defaults;
   try {
-    return { ...defaults, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    return {
+      ...defaults,
+      ...parsed,
+      // 僅管理者 admin 帳號在未填寫時自動帶入專屬 Firebase 網址；其他一般使用者維持空白不共用
+      firebaseDbUrl:
+        (parsed.firebaseDbUrl && String(parsed.firebaseDbUrl).trim()) ||
+        (isAdmin ? ADMIN_DEFAULT_FIREBASE_DB_URL : ''),
+    };
   } catch {
     return defaults;
   }
@@ -132,7 +143,11 @@ export const useAuthStore = create<AuthState>()((set, get) => {
   const initUser = getInitialUser();
   const initSettings = initUser
     ? loadUserSettings(initUser.userId)
-    : { storageMode: 'local' as const, firebaseDbUrl: '', localFolderName: '' };
+    : {
+        storageMode: 'local' as const,
+        firebaseDbUrl: '',
+        localFolderName: '',
+      };
 
   return {
     currentUser: initUser,

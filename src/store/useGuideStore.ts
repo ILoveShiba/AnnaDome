@@ -79,7 +79,7 @@ function loadAndPurgeUserTrash(userId: string): TrashProjectEntry[] {
 
 function getGlobalFirebaseUrlForUser(userId: string): string {
   const settings = loadUserSettings(userId);
-  return settings.storageMode === 'firebase' ? (settings.firebaseDbUrl || '').trim() : '';
+  return (settings.firebaseDbUrl || '').trim();
 }
 
 export const SAMPLE_PROJECT_IDS = new Set([
@@ -1456,12 +1456,20 @@ export const useGuideStore = create<GuideState>()((set, get) => {
           if (cloudProjects.length > 0) {
             get().replaceAllProjectsFromCloud(cloudProjects, cloudGuides);
           }
+        } else {
+          // 若雲端尚無該帳號的大廳備份，但本機目前已有自建專案，自動將本機專案推播初始化上雲端
+          const localProjects = get().projects;
+          const hasCustomLocal = localProjects.some((p) => !isSampleProjectId(p.id));
+          if (hasCustomLocal) {
+            scheduleAutoPushHubToFirebase(user.userId, user.username, localProjects, true);
+          }
         }
       } catch {}
     },
 
     createNewBlankTripAndEnter: () => {
       const userId = getActiveUserId();
+      const username = useAuthStore.getState().currentUser?.username || 'guest';
       const newId = 'trip_' + Date.now();
       const today = new Date().toISOString().split('T')[0];
       const blank = createBlankGuideData(newId, userId);
@@ -1482,6 +1490,7 @@ export const useGuideStore = create<GuideState>()((set, get) => {
       const nextProjects = purgeSampleProjectsIfHasCustomProjects(userId, rawNextProjects);
       safeSetStorage(getHubKeyForUser(userId), JSON.stringify(nextProjects));
       safeSetStorage(getGuideKeyForUser(userId, newId), JSON.stringify(blank));
+      scheduleAutoPushHubToFirebase(userId, username, nextProjects, true);
 
       set({
         ...blank,
@@ -1554,13 +1563,14 @@ export const useGuideStore = create<GuideState>()((set, get) => {
       safeSetStorage(getHubKeyForUser(userId), JSON.stringify(nextProjects));
       safeRemoveStorage(getGuideKeyForUser(userId, projectId));
 
-      // 將本機資料夾內的實體檔案移入「_刪除暫存區_10天自動清理」並更新專案總表
+      // 將本機資料夾內的實體檔案移入「_刪除暫存區_10天自動清理」並更新專案總表與 Firebase 雲端
       moveProjectFileToLocalTrash(userId, username, projectId, guideData, deletedAt).catch(
         () => {}
       );
       syncProjectToLocalFolder(userId, username, nextProjects, null, null, true).catch(
         () => {}
       );
+      scheduleAutoPushHubToFirebase(userId, username, nextProjects, true);
 
       set({
         projects: nextProjects,
@@ -1643,7 +1653,7 @@ export const useGuideStore = create<GuideState>()((set, get) => {
         JSON.stringify(entry.guideData)
       );
 
-      // 從本機暫存區移除並重新寫回正式資料夾
+      // 從本機暫存區移除並重新寫回正式資料夾與 Firebase 雲端
       removeProjectFileFromLocalTrash(userId, username, projectId).catch(() => {});
       syncProjectToLocalFolder(
         userId,
@@ -1653,6 +1663,7 @@ export const useGuideStore = create<GuideState>()((set, get) => {
         entry.guideData,
         true
       ).catch(() => {});
+      scheduleAutoPushHubToFirebase(userId, username, nextProjects, true);
 
       set({
         projects: nextProjects,
@@ -1681,6 +1692,7 @@ export const useGuideStore = create<GuideState>()((set, get) => {
 
     importProjectToHubFromJSON: (raw, fallbackFileName = '匯入的旅程') => {
       const userId = getActiveUserId();
+      const username = useAuthStore.getState().currentUser?.username || 'guest';
       const newId = 'trip_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
       const normalized = normalizeGuideData(raw, newId, userId);
       const title = (normalized.guideTitle || '').trim() || fallbackFileName;
@@ -1702,6 +1714,7 @@ export const useGuideStore = create<GuideState>()((set, get) => {
       const nextProjects = purgeSampleProjectsIfHasCustomProjects(userId, rawNextProjects);
       safeSetStorage(getHubKeyForUser(userId), JSON.stringify(nextProjects));
       safeSetStorage(getGuideKeyForUser(userId, newId), JSON.stringify(normalized));
+      scheduleAutoPushHubToFirebase(userId, username, nextProjects, false);
       set({ projects: nextProjects });
       return title;
     },
