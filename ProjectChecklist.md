@@ -96,6 +96,11 @@
 - [x] **正在旅行期間之專案自動顯示「`✈️ 旅行中`」狀態標籤** ([ProjectHubView.tsx](file:///d:/AnnaDome/src/components/hub/ProjectHubView.tsx))：
     - [x] 以本機當地時區日期 (`TODAY`) 自動判斷，當專案的 `出發日期 <= TODAY <= 結束日期` 時，大廳卡片右上角自動由「籌備中」切換為翠綠色 **`✈️ 旅行中`** 標籤
 
+- [x] **單一專案「🔗 複製此專案共編連結」與 `/shared_rooms/` 旅伴／訪客共編系統** ([CloudConfigSection.tsx](file:///d:/AnnaDome/src/components/studio/CloudConfigSection.tsx)、[useCloudSync.ts](file:///d:/AnnaDome/src/hooks/useCloudSync.ts)、[LoginView.tsx](file:///d:/AnnaDome/src/components/auth/LoginView.tsx)、[useGuideStore.ts](file:///d:/AnnaDome/src/store/useGuideStore.ts))：
+    - [x] 於單一特定專案編輯器內僅提供 **「`🔗 複製此專案共編連結`」** 單一分享按鈕（如 `?room=<房間ID>`），點擊自動將該專案推播至 `/shared_rooms/<房間ID>.json` 並複製專屬共編網址
+    - [x] 共編者點開連結後可選擇 **「👋 訪客共編（只需設定名稱，直接進入該單一專案編輯，不進入大廳亦看不到其他專案）」**、**「🔐 帳號登入」** 或 **「✨ 註冊帳號」**（會員登入／註冊後自動將該單一共編專案掛載進個人大廳並進入共編）
+    - [x] 底層 Firebase 網址對一般會員與訪客完全隱藏（新會員仍可於「⚙️ 設定」自訂自己的 Firebase），並具備雲端空間自動瘦身保護（非 `admin` 帳號於 `/shared_rooms/` 共編時自動剔除大型 Base64 圖片，每間共編房僅約 4KB）
+
 </details>
 
 ---

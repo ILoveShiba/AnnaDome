@@ -4,7 +4,8 @@ export interface UserAccount {
   userId: string;
   username: string;
   passwordHash: string;
-  role?: 'admin' | 'member';
+  role?: 'admin' | 'member' | 'guest';
+  guestRoomId?: string;
   createdAt: string;
 }
 
@@ -127,6 +128,7 @@ export interface AuthState {
 
   login: (username: string, password: string) => { ok: boolean; message: string };
   register: (username: string, password: string) => { ok: boolean; message: string };
+  loginAsGuest: (guestName: string, roomId: string) => { ok: boolean; message: string };
   logout: () => void;
   updateSettings: (partial: Partial<UserStorageSettings>) => void;
   setSettingsModalOpen: (open: boolean) => void;
@@ -239,8 +241,49 @@ export const useAuthStore = create<AuthState>()((set, get) => {
       return { ok: true, message: '註冊並登入成功！' };
     },
 
+    loginAsGuest: (guestName, roomId) => {
+      const cleanName = guestName.trim();
+      const cleanRoom = roomId.trim();
+      if (!cleanName) {
+        return { ok: false, message: '請輸入您的訪客名稱（例如：阿明）！' };
+      }
+      if (!cleanRoom) {
+        return { ok: false, message: '無效的共編房間連結！' };
+      }
+
+      const guestUser: UserAccount = {
+        userId: 'guest_' + cleanName.replace(/[^a-zA-Z0-9_\u4e00-\u9fa5]/g, '_'),
+        username: cleanName,
+        passwordHash: '',
+        role: 'guest',
+        guestRoomId: cleanRoom,
+        createdAt: new Date().toISOString(),
+      };
+
+      const guestSettings: UserStorageSettings = {
+        storageMode: 'local',
+        firebaseDbUrl: '',
+        localFolderName: '',
+      };
+
+      set({
+        currentUser: guestUser,
+        settings: guestSettings,
+        isSettingsModalOpen: false,
+      });
+      return { ok: true, message: `歡迎訪客「${cleanName}」進入共編！` };
+    },
+
     logout: () => {
       safeRemove(CURRENT_USER_KEY);
+      // 若網址上帶有 ?room=xxx，登出時一併清除網址上的 room 參數以免卡在單一房間
+      try {
+        const url = new URL(window.location.href);
+        if (url.searchParams.has('room')) {
+          url.searchParams.delete('room');
+          window.history.replaceState({}, '', url.toString());
+        }
+      } catch {}
       set({
         currentUser: null,
         isSettingsModalOpen: false,

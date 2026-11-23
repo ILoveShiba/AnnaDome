@@ -11,7 +11,11 @@ import {
   CouponItem,
   DocItem,
 } from '../types/guide';
-import { useAuthStore, loadUserSettings } from './useAuthStore';
+import {
+  useAuthStore,
+  loadUserSettings,
+  ADMIN_DEFAULT_FIREBASE_DB_URL,
+} from './useAuthStore';
 import {
   syncProjectToLocalFolder,
   moveProjectFileToLocalTrash,
@@ -1017,12 +1021,13 @@ export interface GuideState extends TravelGuideData {
     guidesMap: Record<string, TravelGuideData>
   ) => void;
 
-  // 專案大廳、刪除暫存區（10 天自動刪除）、封面更換與預覽開窗 Actions
+  // 專案大廳、刪除暫存區（10 天自動刪除）、封面更換、單一專案共編加入與預覽開窗 Actions
   openProjectInGenerator: (projectId: string, autoPreview?: boolean) => void;
   openProjectInPreviewModal: (projectId: string) => void;
   setPreviewModalOpen: (open: boolean) => void;
   updateProjectCover: (projectId: string, coverUrl: string) => void;
   autoPullHubFromCloudIfConfigured: () => Promise<void>;
+  joinSharedRoomProject: (roomId: string, asGuest?: boolean) => Promise<boolean>;
   createNewBlankTripAndEnter: () => void;
   returnToHub: () => void;
   saveCurrentProjectToHub: () => void;
@@ -1443,7 +1448,7 @@ export const useGuideStore = create<GuideState>()((set, get) => {
 
     autoPullHubFromCloudIfConfigured: async () => {
       const user = useAuthStore.getState().currentUser;
-      if (!user) return;
+      if (!user || user.role === 'guest') return;
       const settings = loadUserSettings(user.userId);
       const fbUrl = (settings.firebaseDbUrl || '').trim();
       if (!fbUrl) return;
@@ -1465,6 +1470,110 @@ export const useGuideStore = create<GuideState>()((set, get) => {
           }
         }
       } catch {}
+    },
+
+    joinSharedRoomProject: async (roomId, asGuest = false) => {
+      const cleanRoom = roomId.trim();
+      if (!cleanRoom) return false;
+      const userId = getActiveUserId();
+      const username = useAuthStore.getState().currentUser?.username || 'guest';
+
+      // 先從內建的 /shared_rooms/<roomId>.json（或舊版 /guides/<roomId>.json）拉取該特定共編專案
+      let base = ADMIN_DEFAULT_FIREBASE_DB_URL.trim();
+      if (!base.endsWith('/')) base += '/';
+      const sharedEndpoint = `${base}shared_rooms/${encodeURIComponent(cleanRoom)}.json`;
+      const legacyGuideEndpoint = `${base}guides/${encodeURIComponent(cleanRoom)}.json`;
+
+      let cloudGuide: Partial<TravelGuideData> | null = null;
+      try {
+        const res = await fetch(sharedEndpoint);
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.state) cloudGuide = data.state;
+        }
+        if (!cloudGuide) {
+          const resLegacy = await fetch(legacyGuideEndpoint);
+          if (resLegacy.ok) {
+            const dataLegacy = await resLegacy.json();
+            if (dataLegacy?.state) cloudGuide = dataLegacy.state;
+          }
+        }
+      } catch {}
+
+      let loadedData: TravelGuideData;
+      if (cloudGuide) {
+        loadedData = normalizeGuideData(cloudGuide, cleanRoom, userId);
+        loadedData.firebaseRoomId = cleanRoom;
+      } else {
+        // 若本機已有此專案 ID（例如主揪自己在同一台瀏覽器點擊連結），直接讀取本機；否則建立該共編房間
+        const localSaved = safeGetStorage(getGuideKeyForUser(userId, cleanRoom));
+        if (localSaved) {
+          try {
+            loadedData = normalizeGuideData(JSON.parse(localSaved), cleanRoom, userId);
+          } catch {
+            loadedData = createBlankGuideData(cleanRoom, userId);
+          }
+        } else {
+          loadedData = createBlankGuideData(cleanRoom, userId);
+          loadedData.guideTitle = `共編旅程 (${cleanRoom})`;
+        }
+        loadedData.firebaseRoomId = cleanRoom;
+      }
+
+      // 絕不暴露底層 Firebase 網址給訪客或一般會員
+      loadedData.firebaseDbUrl = getGlobalFirebaseUrlForUser(userId);
+
+      if (asGuest) {
+        // 訪客模式：僅進入該單一共編專案的雙欄編輯器，不載入亦不寫入大廳專案清單
+        safeSetStorage(getGuideKeyForUser(userId, cleanRoom), JSON.stringify(loadedData));
+        set({
+          ...loadedData,
+          currentProjectId: cleanRoom,
+          projects: [],
+          activeView: 'generator',
+          showInlinePreview: false,
+          isPreviewModalOpen: false,
+        });
+        return true;
+      }
+
+      // 會員／註冊帳號模式：將這一個特定的共編專案加入該會員自己的大廳卡片清單，並直接打開雙欄編輯器
+      const today = new Date().toISOString().split('T')[0];
+      const newMeta: ProjectMeta = {
+        id: cleanRoom,
+        title: (loadedData.guideTitle || '').trim() || `共編旅程 (${cleanRoom})`,
+        startDate: loadedData.startDate || today,
+        endDate: loadedData.endDate || loadedData.startDate || today,
+        cover:
+          loadedData.coverUrl ||
+          'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=600&q=80',
+        updatedAt: new Date().toISOString(),
+      };
+
+      const currentList = get().projects;
+      const existingIdx = currentList.findIndex((p) => p.id === cleanRoom);
+      let nextProjects: ProjectMeta[];
+      if (existingIdx !== -1) {
+        nextProjects = currentList.map((p, idx) =>
+          idx === existingIdx ? { ...p, ...newMeta } : p
+        );
+      } else {
+        nextProjects = [newMeta, ...currentList];
+      }
+
+      safeSetStorage(getHubKeyForUser(userId), JSON.stringify(nextProjects));
+      safeSetStorage(getGuideKeyForUser(userId, cleanRoom), JSON.stringify(loadedData));
+      scheduleAutoPushHubToFirebase(userId, username, nextProjects, false);
+
+      set({
+        ...loadedData,
+        currentProjectId: cleanRoom,
+        projects: nextProjects,
+        activeView: 'generator',
+        showInlinePreview: false,
+        isPreviewModalOpen: false,
+      });
+      return true;
     },
 
     createNewBlankTripAndEnter: () => {

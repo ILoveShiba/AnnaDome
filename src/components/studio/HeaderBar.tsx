@@ -23,6 +23,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({ lastSavedAt }) => {
 
   const currentUser = useAuthStore((s) => s.currentUser);
   const setSettingsModalOpen = useAuthStore((s) => s.setSettingsModalOpen);
+  const logout = useAuthStore((s) => s.logout);
+  const isGuest = currentUser?.role === 'guest';
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [justSavedToast, setJustSavedToast] = useState(false);
@@ -80,46 +82,64 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({ lastSavedAt }) => {
       >
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 min-h-[28px]">
           <div className="flex items-center gap-2.5 min-w-0">
-            <button
-              type="button"
-              onClick={returnToHub}
-              className="bg-blue-600 hover:bg-blue-500 text-white border border-blue-400/40 px-3 py-1 rounded-lg text-[13px] font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shadow-xs"
-            >
-              ⬅ 返回專案大廳
-            </button>
+            {!isGuest ? (
+              <button
+                type="button"
+                onClick={returnToHub}
+                className="bg-blue-600 hover:bg-blue-500 text-white border border-blue-400/40 px-3 py-1 rounded-lg text-[13px] font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shadow-xs"
+              >
+                ⬅ 返回專案大廳
+              </button>
+            ) : (
+              <span className="bg-emerald-700/80 border border-emerald-400/40 text-emerald-100 px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap">
+                👋 訪客共編模式
+              </span>
+            )}
 
             <span
               id="navCurrentTripName"
               className="text-[13.5px] font-semibold text-[#f4d068] truncate"
             >
-              [{currentUser?.username}] 正在編輯：{guideTitle.trim() || '新旅程（請於下方 0. 輸入名稱）'}
+              [{isGuest ? `訪客：${currentUser?.username}` : currentUser?.username}] 正在共編：{guideTitle.trim() || '新旅程（請於下方 0. 輸入名稱）'}
             </span>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setSettingsModalOpen(true)}
-              className="bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-600 px-2.5 py-1 rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <span>⚙️ 設定</span>
-            </button>
+            {!isGuest ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setSettingsModalOpen(true)}
+                  className="bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-600 px-2.5 py-1 rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  <span>⚙️ 設定</span>
+                </button>
 
-            <button
-              type="button"
-              onClick={handleSaveToHub}
-              className="bg-emerald-700 hover:bg-emerald-600 text-white px-2.5 py-1 rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
-            >
-              {justSavedToast ? '✅ 已同步至大廳' : '💾 儲存專案至大廳'}
-            </button>
+                <button
+                  type="button"
+                  onClick={handleSaveToHub}
+                  className="bg-emerald-700 hover:bg-emerald-600 text-white px-2.5 py-1 rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  {justSavedToast ? '✅ 已同步至大廳' : '💾 儲存專案至大廳'}
+                </button>
 
-            <button
-              type="button"
-              onClick={createNewBlankTripAndEnter}
-              className="bg-slate-700 hover:bg-slate-600 text-slate-100 border border-slate-600 px-2.5 py-1 rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
-            >
-              ＋ 建立全新空白旅程
-            </button>
+                <button
+                  type="button"
+                  onClick={createNewBlankTripAndEnter}
+                  className="bg-slate-700 hover:bg-slate-600 text-slate-100 border border-slate-600 px-2.5 py-1 rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  ＋ 建立全新空白旅程
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={logout}
+                className="bg-rose-900 hover:bg-rose-800 text-rose-100 border border-rose-700 px-3 py-1 rounded-lg text-xs font-bold inline-flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
+              >
+                🚪 離開訪客共編
+              </button>
+            )}
           </div>
         </div>
       </nav>

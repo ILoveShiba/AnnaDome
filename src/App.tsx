@@ -24,9 +24,18 @@ import { useCloudSync } from './hooks/useCloudSync';
 
 export const App: React.FC = () => {
   const [dragDayIdx, setDragDayIdx] = useState<number | null>(null);
+  const [invitedRoomId, setInvitedRoomId] = useState<string | null>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('room');
+    } catch {
+      return null;
+    }
+  });
 
   const currentUser = useAuthStore((s) => s.currentUser);
   const reloadProjectsForUser = useGuideStore((s) => s.reloadProjectsForUser);
+  const joinSharedRoomProject = useGuideStore((s) => s.joinSharedRoomProject);
 
   const activeView = useGuideStore((s) => s.activeView);
   const showInlinePreview = useGuideStore((s) => s.showInlinePreview);
@@ -46,8 +55,22 @@ export const App: React.FC = () => {
   usePreviewSync(activeView);
 
   useEffect(() => {
-    if (currentUser) {
-      reloadProjectsForUser(currentUser.userId);
+    if (!currentUser) return;
+    if (currentUser.role === 'guest' && currentUser.guestRoomId) {
+      joinSharedRoomProject(currentUser.guestRoomId, true);
+      return;
+    }
+    reloadProjectsForUser(currentUser.userId);
+    if (invitedRoomId && invitedRoomId.trim()) {
+      const targetRoom = invitedRoomId.trim();
+      joinSharedRoomProject(targetRoom, false).then(() => {
+        setInvitedRoomId(null);
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('room');
+          window.history.replaceState({}, '', url.toString());
+        } catch {}
+      });
     }
   }, [currentUser?.userId]);
 
@@ -65,9 +88,24 @@ export const App: React.FC = () => {
     }
   }, [activeView, showInlinePreview]);
 
-  // 未登入時顯示簡易會員登入／註冊畫面
+  // 未登入時顯示會員／訪客共編登入／註冊畫面
   if (!currentUser) {
-    return <LoginView onAuthSuccess={(userId) => reloadProjectsForUser(userId)} />;
+    return (
+      <LoginView
+        invitedRoomId={invitedRoomId}
+        onAuthSuccess={(userId, isGuest) => {
+          if (isGuest && invitedRoomId) {
+            joinSharedRoomProject(invitedRoomId, true);
+          } else {
+            reloadProjectsForUser(userId);
+            if (invitedRoomId) {
+              joinSharedRoomProject(invitedRoomId, false);
+              setInvitedRoomId(null);
+            }
+          }
+        }}
+      />
+    );
   }
 
   return (
