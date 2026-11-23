@@ -67,7 +67,7 @@
     - [x] 點擊、聚焦、打字編輯或捲動左側任一區塊與單一子項目（`0. 命名與副標題`、`1. 航班 / 單筆航班`、`2. 飯店 / 單筆飯店`、`3. 每日行程 / 單日卡片 / 單一景點時段`、`4. 購物清單`、`5. 優惠券`、`6. 重要文件`）時，右側預覽獨立捲軸 (`#guide-scroll-viewport`) 自動平滑捲動對齊對應的預覽區塊 (`#preview-sync-*`) 並加上外框高亮提示
     - [x] 於 [index.css](file:///d:/AnnaDome/src/styles/index.css) 的 `@media print` 同步解除 `#guide-scroll-viewport` 的高度與捲軸限制並隱藏 `#sticky-top-header`，確保雙欄常駐模式下匯出多頁 PDF 不會被截斷
 
-### 6. 最新追加之 10 項細節優化與功能擴充 (Latest 10 Enhancements)
+### 6. 最新追加之 11 項細節優化與功能擴充 (Latest 11 Enhancements)
 
 - [x] **出發日期與結束日期改為唯讀，自動串聯去程與回程航班日期** ([BasicInfoSection.tsx](file:///d:/AnnaDome/src/components/studio/BasicInfoSection.tsx) & [useGuideStore.ts](file:///d:/AnnaDome/src/store/useGuideStore.ts))：
     - [x] 將「出發日期」與「結束日期」設為唯讀 (`readOnly`)，直接自動連動下方「2. 航班時間資訊」中「去程航班」與「回程航班」所選取的日期，並自動更新大廳卡片與 `Day 1 ~ N` 天數日期

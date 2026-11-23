@@ -1,498 +1,159 @@
-# 旅行手冊產生器 (Travel Guide Generator) - React 重構技術規格書
+# ✈️ 旅遊手冊管理中心 & 旅行手冊一鍵產生器 — React 技術規格與修正紀錄
 
-本規格書專為使用 **React 18+ / TypeScript / Vite** 重構「旅行手冊一鍵產生器」制定，定義了系統架構、元件拆分階層、狀態管理模型、方案 C 互動機制、Firebase 同步演算法，以及前端單檔 HTML 編譯技術規範。
-
----
-
-## 1. 系統架構與設計模式 (Architecture & Design Patterns)
-
-### 1.1 核心架構目標
-1. **雙模運行模式 (Dual-Mode Operation)**：
-   * **產生器模式 (Generator / Studio View)**：提供結構化表單、日期運算、拖曳排序、Google 導航網址生成與資料持久化暫存。
-   * **手冊檢視模式 (Guide Preview & Standalone View)**：卡片化折疊介面、行內直接編輯 (In-place Editing)、PDF/列印專用樣式。
-2. **單檔離線匯出引擎 (Single-File Compilation Engine)**：
-   * 系統不依賴後端伺服器，直接在瀏覽器前端透過範本引擎或字串組裝，將目前 React 狀態編譯為**完全自包含 (Self-Contained) 的單一 HTML 檔案**供使用者下載分享。
-3. **無縫雲端與時間戳記防護 (Timestamp Guard Synchronization)**：
-   * 透過時間戳記比對 (`updatedAt` vs `LOCAL_BUILD_TIME`)，解決本地新匯出手冊被雲端舊快取覆蓋的競態問題。
+本規格書記錄使用 **React 18+ / TypeScript / Vite / Tailwind CSS / Zustand** 建構「✈️ 旅遊手冊管理中心 & 旅行手冊一鍵產生器」之完整系統架構、資料模型、元件階層以及所有最新修正紀錄。
 
 ---
 
-## 2. 核心資料模型 (TypeScript Schemas)
+## 1. 系統核心架構 (Architecture & Design Patterns)
+
+1. **雙模狀態驅動架構 (`activeView: 'hub' | 'generator'`)**：
+   * **旅遊手冊管理中心 (`#hub-view`)**：依日期自動將專案分類為「🧳 籌備與進行中專案（含 `✈️ 旅行中` 與 `籌備中`）」與「📜 典藏回憶｜已完成專案（`已完結`）」，並支援排序下拉選單、自訂更換封面圖片、「🗑️ 刪除」切換模式與 10 天自動清理暫存區。
+   * **雙欄同步產生器模式 (`#generator-view`)**：上方導覽列與標題工具列常駐置頂 (`#sticky-top-header`)；左欄為 `0 ~ 8` 結構化表單編輯區 (`#studio-panel`)，右欄為預設全展開之唯讀即時預覽區 (`#guide-panel`)，點擊或捲動左欄任一區塊時右欄自動平滑對齊。
+2. **頂部「👁️ 即時預覽」唯讀開窗與雙格式匯出 ([PreviewModal.tsx](file:///d:/AnnaDome/src/components/guide-view/PreviewModal.tsx))**：
+   * 點擊大廳卡片的「📖 翻閱手冊」或產生器頂部「👁️ 即時預覽」即可彈出唯讀預覽視窗（右上角附精簡版「✏️ 編輯手冊」按鈕，下方固定提供「📄 下載 PDF」與「💾 下載網頁」兩顆按鈕）。
+3. **會員／管理者權限隔離與 `/shared_rooms/` 單一專案旅伴／訪客共編系統**：
+   * 內建管理者帳號 `admin`（密碼：`wanghome0830`，預設自動綁定專屬 Firebase 雲端資料庫），一般使用者則預設本機儲存且隱藏管理者 Firebase 網址。
+   * 單一專案內僅提供 **「`🔗 複製此專案共編連結`」** 單一按鈕，透過 `/shared_rooms/<房間ID>.json` 進行單一專案共編；受邀旅伴點開連結可選擇 **「👋 訪客共編（僅需設定名稱，直接開啟該單一專案編輯）」**、**「🔐 帳號登入」** 或 **「✨ 註冊帳號」**。
+
+---
+
+## 2. 核心資料模型 ([src/types/guide.ts](file:///d:/AnnaDome/src/types/guide.ts))
 
 ```typescript
-// src/types/guide.ts
-
-export interface HotelInfo {
-  id: string;
-  checkIn: string;   // YYYY-MM-DD
-  checkOut: string;  // YYYY-MM-DD
-  name: string;
-  engName?: string;
-  address: string;
-  trans: string;
-}
-
-export interface SpotItem {
-  id: string;
-  time: string;      // 例："14:00 - 16:00"
-  spot: string;      // 景點名稱，失焦自動綁定 Google Maps Search
-  trans: string;     // 交通形式說明
-  routeUrl: string;  // Google Maps Direction URL
-  note: string;      // 備註說明
-}
-
-export interface DayPlan {
-  id: string;
-  dayNumber: number;
-  title: string;     // 例："Day 1 (08/15 六)｜抵達東京．銀座探索"
-  spots: SpotItem[];
-}
-
-export interface ShoppingItem {
-  id: string;
-  cat: string;       // 採買類別 / 品項
-  desc: string;      // 購買地點與退稅提醒
-}
-
-export interface CouponItem {
+export interface ProjectMeta {
   id: string;
   title: string;
-  url: string;
-  desc: string;
+  startDate: string; // YYYY-MM-DD (自動連動去程航班日期)
+  endDate: string;   // YYYY-MM-DD (自動連動回程航班日期)
+  cover: string;     // 圖片 URL 或壓縮後之 Base64 Data URL
+  updatedAt?: string;
 }
 
-export interface DocItem {
+export interface TrashProjectEntry {
+  project: ProjectMeta;
+  guideData: TravelGuideData;
+  deletedAt: string; // 移入暫存區時間
+  expiresAt: string; // 10 天後自動永久刪除時間
+}
+
+export interface FlightItem {
   id: string;
-  title: string;
-  note: string;
-  linkUrl: string;   // Google Drive 憑證或雲端 PDF 連結
+  direction?: 'outbound' | 'inbound'; // 去程 ('outbound') 或 回程 ('inbound')
+  type: string;
+  date?: string;     // YYYY-MM-DD (日曆開窗選取)
+  depTime?: string;  // HH:mm (起飛時間選取)
+  arrTime?: string;  // HH:mm (抵達時間選取)
+  time: string;      // 自動組合之顯示字串
+  flightNo: string;
+  dep: string;
+  arr: string;
 }
 
 export interface TravelGuideData {
-  // 雲端與手冊基礎設定
   firebaseDbUrl: string;
   firebaseRoomId: string;
   guideTitle: string;
   guideSubtitle: string;
   guideSummary: string;
-
-  // 航班資訊（雙程 4 欄位拆解）
-  flightInTime: string;
-  flightInNo: string;
-  flightInDep: string;
-  flightInArr: string;
-  flightOutTime: string;
-  flightOutNo: string;
-  flightOutDep: string;
-  flightOutArr: string;
-
-  // 各大模組集合
-  hotels: HotelInfo[];
-  days: DayPlan[];
-  shopping: ShoppingItem[];
-  coupons: CouponItem[];
-  docs: DocItem[];
-  
-  // 構建版本識別
-  buildTime?: string; // ISO String
+  companions?: string;   // 👥 1. 旅行夥伴
+  startDate?: string;    // 唯讀，自動串聯去程航班日期
+  endDate?: string;      // 唯讀，自動串聯回程航班日期
+  coverUrl?: string;     // 封面圖片（連動大廳卡片與手冊頂部 Hero Banner 底圖）
+  flights: FlightItem[]; // ✈️ 2. 航班時間資訊（去程／回程兩大區塊）
+  hotels: HotelInfo[];   // 🏨 3. 飯店資訊
+  days: DayPlan[];       // 🗓️ 4. 每日行程與景點規劃
+  shopping: ShoppingItem[]; // 🛍️ 5. 購物採買清單
+  coupons: CouponItem[]; // 🎁 6. 電子優惠券設定
+  docs: DocItem[];       // 📎 7. 電子票券與重要文件 (超連結)
+  generalNote?: string;  // 📝 8. 備註（純文字章節）
+  buildTime?: string;
 }
 ```
 
 ---
 
-## 3. 專案目錄結構 (React Project Structure)
+## 3. 專案目錄結構 (`src/`)
 
-```
-travel-guide-app/
-├── public/
-│   ├── favicon.ico
-│   └── manifest.json             # PWA 應用程式清單
-├── src/
-│   ├── assets/                   # 靜態圖示與 SVG 標誌
-│   ├── components/
-│   │   ├── common/               # 原子級通用 UI 元件
-│   │   │   ├── Button.tsx
-│   │   │   ├── TextInput.tsx
-│   │   │   ├── DatePicker.tsx
-│   │   │   ├── DetailsAccordion.tsx # 支援預設全收合的細節折疊卡片
-│   │   │   └── SchemeCPlaceholder.tsx # 方案 C 自動全選行內文字元件
-│   │   ├── studio/               # 產生器後台編輯元件
-│   │   │   ├── HeaderBar.tsx
-│   │   │   ├── CloudConfigSection.tsx
-│   │   │   ├── BasicInfoSection.tsx
-│   │   │   ├── FlightSection.tsx
-│   │   │   ├── HotelManager.tsx
-│   │   │   ├── ItineraryPlanner/
-│   │   │   │   ├── DayCard.tsx
-│   │   │   │   ├── SpotCard.tsx
-│   │   │   │   └── RouteGeneratorDialog.tsx # Google 路線快速產生器
-│   │   │   ├── ShoppingManager.tsx
-│   │   │   ├── CouponManager.tsx
-│   │   │   └── DocManager.tsx
-│   │   └── guide-view/           # 產出物手冊預覽及獨立手冊元件
-│   │       ├── GuideContainer.tsx
-│   │       ├── HeroBannerView.tsx
-│   │       ├── FlightView.tsx
-│   │       ├── HotelView.tsx
-│   │       ├── ItineraryView.tsx
-│   │       ├── ShoppingView.tsx
-│   │       └── FloatingActionBar.tsx    # PDF 匯出與模式切換按鈕
-│   ├── hooks/
-│   │   ├── useAutoSave.ts        # 本機 LocalStorage 自動寫入 (Debounce 300ms)
-│   │   ├── useDateInference.ts   # 去程時間推算 Day 1 ~ N 日期
-│   │   └── useCloudSync.ts       # Firebase Realtime DB 版本安全輪詢與更新
-│   ├── store/
-│   │   └── useGuideStore.ts      # Zustand 全域狀態 (整合 CRUD Action 與 Immer)
-│   ├── services/
-│   │   ├── googleMaps.ts         # 搜尋與導航路線 URL 封裝函式
-│   │   ├── singleFileCompiler.ts # 將當前 React 資料編譯注入為單檔 HTML
-│   │   └── pdfExport.ts          # 呼叫無痕 @media print 匯出
-│   ├── types/
-│   │   └── guide.ts
-│   ├── styles/
-│   │   └── index.css             # Tailwind 與 Print 專用樣式規則
-│   ├── App.tsx                   # 路由或主檢視切換 (Studio vs Preview)
-│   └── main.tsx
-├── tailwind.config.js
-├── vite.config.ts
-├── tsconfig.json
-└── package.json
+```text
+d:\AnnaDome\
+├── index.html                        # 預編譯完成之獨立可執行首頁（供 GitHub Pages 直接部署）
+├── TravelGuideStudio.html            # 預編譯完成之單一檔案版本
+├── ProjectChecklist.md               # 開發進度與功能規格核對清單
+├── TravelSystemSpec.md               # 系統技術規格與最新修正紀錄
+└── src/
+    ├── components/
+    │   ├── auth/
+    │   │   └── LoginView.tsx         # 會員／管理者登入、註冊新帳號、以及受邀「👋 訪客共編」三合一介面
+    │   ├── hub/
+    │   │   ├── ProjectHubView.tsx    # 旅遊手冊管理中心（含排序、更換封面彈窗、刪除模式切換、10天暫存區）
+    │   │   └── UserSettingsModal.tsx # 全域儲存設定中心（本機資料夾直連 / Firebase 雲端設定）
+    │   ├── studio/
+    │   │   ├── HeaderBar.tsx         # 常駐置頂導覽列與標題工具列（含訪客模式權限鎖定與「👁️ 即時預覽」按鈕）
+    │   │   ├── CloudConfigSection.tsx# 單一專案共編設定（僅提供「🔗 複製此專案共編連結」單一分享按鈕）
+    │   │   ├── BasicInfoSection.tsx  # 🌟 0. 命名、副標題、唯讀出發/結束日期、封面網址與本機照片上傳預覽
+    │   │   ├── CompanionSection.tsx  # 👥 1. 旅行夥伴（文字框章節）
+    │   │   ├── FlightSection.tsx     # ✈️ 2. 航班時間資訊（去程／回程分區＋日期與時間點選器）
+    │   │   ├── HotelManager.tsx      # 🏨 3. 飯店資訊
+    │   │   ├── ItineraryPlanner/     # 🗓️ 4. 每日行程與景點規劃（DayCard.tsx & SpotCard.tsx）
+    │   │   ├── ShoppingManager.tsx   # 🛍️ 5. 購物採買清單
+    │   │   ├── CouponManager.tsx     # 🎁 6. 電子優惠券設定
+    │   │   ├── DocManager.tsx        # 📎 7. 電子票券與重要文件 (超連結)
+    │   │   └── NoteManager.tsx       # 📝 8. 備註（純文字章節）
+    │   └── guide-view/
+    │       ├── GuideContainer.tsx    # 右側唯讀即時預覽容器
+    │       ├── HeroBannerView.tsx    # 手冊頂部橫幅（底圖自動連動專案封面圖片＋漸層遮罩＋旅行夥伴顯示）
+    │       ├── PreviewModal.tsx      # 唯讀手冊預覽彈窗（右上角附「✏️ 編輯手冊」，下方附「📄 下載 PDF / 💾 下載網頁」）
+    │       ├── FlightView.tsx
+    │       ├── HotelView.tsx
+    │       ├── ItineraryView.tsx
+    │       └── ShoppingView.tsx
+    ├── hooks/
+    │   ├── useAutoSave.ts
+    │   └── useCloudSync.ts           # /shared_rooms/<roomId>.json 雙向同步引擎（含雲端空間瘦身保護）
+    ├── services/
+    │   ├── imageUtils.ts             # 本機照片 Canvas 壓縮轉 Base64 與 14 張通用純圖片精選封面庫
+    │   ├── localFolderSync.ts        # File System Access API 本機資料夾備份（防注音半成品生檔＋10天暫存子資料夾）
+    │   ├── hubCloudSync.ts           # 大廳全專案 Firebase 同步服務
+    │   ├── previewSync.ts            # 左欄編輯與右欄預覽自動捲動對齊引擎
+    │   ├── pdfExport.ts              # 無痕全展開 PDF 列印服務
+    │   └── singleFileCompiler.ts     # 單檔離線 HTML 編譯器
+    └── store/
+        ├── useAuthStore.ts           # 帳號認證與管理者專屬預設 Firebase 分流設定
+        └── useGuideStore.ts          # 多專案隔離儲存、共編房間掛載與 10 天暫存區管理
 ```
 
 ---
 
-## 4. 關鍵模組實作規格與 React 設計模式
+## 4. 最新架構與功能修正紀錄彙整（2026-11-21 ~ 2026-11-24）
 
-### 4.1 方案 C：Placeholder 互動式元件 (`SchemeCPlaceholder.tsx`)
-* **需求規格**：
-  * 當值為空時，文字呈現 `(例：...)`，字體為淺灰（`#9ca3af`）與斜體（`italic`）。
-  * 點擊/聚焦時自動調用 `window.getSelection()` 全選文字，輸入即直接覆蓋，無需逐字刪除。
-  * 失焦（`blur`）時，若輸入了新文字則移除 placeholder 樣式；若被使用者全刪空，自動恢復預設 placeholder。
+### 4.1 會員／內建管理者權限隔離與雲端設定分流
+1. **共用登入畫面與個人專案隔離**（[useAuthStore.ts](file:///d:/AnnaDome/src/store/useAuthStore.ts)、[LoginView.tsx](file:///d:/AnnaDome/src/components/auth/LoginView.tsx)）：
+   * 內建管理者專屬帳號 `admin`（密碼：`wanghome0830`），同時保留一般使用者「註冊帳號」與「帳號登入」功能；每位使用者登入後僅能檢視與管理自己帳號下的旅遊專案。
+   * **管理者專屬預設雲端綁定（方案 A）**：僅 `admin` 帳號預設自動綁定 `https://travel-handbook-241bb-default-rtdb.firebaseio.com/` 進行跨裝置（電腦／手機）大廳自動同步；其他一般使用者帳號預設為「本機儲存」且「⚙️ 設定」中的 Firebase 網址欄位預設為空白，不共用亦不暴露管理者雲端網址（一般使用者仍可自行填入自己的 Firebase 網址）。
+2. **三大範例專案保留與 `(範例)` 標示**（[useGuideStore.ts](file:///d:/AnnaDome/src/store/useGuideStore.ts)）：
+   * 內建 `(範例) 東京 5 日風格隨身手冊`、`(範例) 北海道秋日散策`、`(範例) 胡志明市城市漫遊`，統一於標題前方加上 `(範例)` 前綴，並取消新增自建專案時自動清除範例專案之行為。
 
-```tsx
-// src/components/common/SchemeCPlaceholder.tsx
-import React, { useRef } from 'react';
-import clsx from 'clsx';
+### 4.2 單一專案「🔗 複製此專案共編連結」與 `/shared_rooms/` 旅伴／訪客共編系統
+1. **單一特定專案共編分享**（[CloudConfigSection.tsx](file:///d:/AnnaDome/src/components/studio/CloudConfigSection.tsx)、[useCloudSync.ts](file:///d:/AnnaDome/src/hooks/useCloudSync.ts)）：
+   * 共編功能僅設定於單一特定旅行專案內，只提供 **「`🔗 複製此專案共編連結`」** 單一按鈕（格式：`?room=<房間ID>`），點擊時自動將該專案推播至 `/shared_rooms/<房間ID>.json` 並複製連結。
+   * **雲端空間瘦身保護**：非 `admin` 帳號於公共 `/shared_rooms/` 共編時，自動過濾大型 Base64 圖片改用輕量封面網址，單一共編房間僅占約 `4KB`。
+2. **共編者三選一進入模式（含訪客模式）**（[LoginView.tsx](file:///d:/AnnaDome/src/components/auth/LoginView.tsx)、[HeaderBar.tsx](file:///d:/AnnaDome/src/components/studio/HeaderBar.tsx)）：
+   * **👋 訪客共編（只需設定名稱）**：免密碼，輸入訪客名稱後直接開啟該單一受邀專案進入雙欄編輯器，不進入大廳亦無法檢視其他專案。
+   * **🔐 帳號登入 / ✨ 註冊帳號**：登入或註冊後自動將該單一共編專案掛載進個人大廳並直接進入編輯器。
 
-interface SchemeCPlaceholderProps {
-  value: string;
-  placeholder: string;
-  isEditable: boolean;
-  onValueChange: (newValue: string) => void;
-  className?: string;
-}
+### 4.3 本機資料夾防注音重複生檔、「🗑️ 刪除」切換模式與 10 天刪除暫存區
+1. **防注音半成品檔名與同 ID 舊檔清理**（[localFolderSync.ts](file:///d:/AnnaDome/src/services/localFolderSync.ts)）：
+   * 本機資料夾寫入啟用 `900ms` 防抖延遲（Debounce），過濾未完成選字的注音符號（`ㄅ~ㄦ`），並於寫入完整檔名時自動清除同專案 ID 先前產生的舊檔名與注音殘留檔。
+2. **「🗑️ 刪除」切換模式與 10 天自動清理暫存區**（[ProjectHubView.tsx](file:///d:/AnnaDome/src/components/hub/ProjectHubView.tsx)）：
+   * 專案卡片預設隱藏 `✕`，點擊大廳右上角「🗑️ 刪除」按鈕後各專案才顯示可點選的 `✕`；點選後跳出防誤刪提醒視窗，確認後移入「🗑️ 刪除暫存區（`_刪除暫存區_10天自動清理`）」保留 10 天（期間可一鍵還原），滿 10 天後自動永久刪除。
 
-export const SchemeCPlaceholder: React.FC<SchemeCPlaceholderProps> = ({
-  value,
-  placeholder,
-  isEditable,
-  onValueChange,
-  className,
-}) => {
-  const spanRef = useRef<HTMLSpanElement>(null);
-  const isDefault = !value || value.trim() === '';
-  const displayContent = isDefault ? `(${placeholder})` : value;
-
-  const handleFocus = () => {
-    if (!isEditable || !spanRef.current) return;
-    if (isDefault) {
-      const range = document.createRange();
-      range.selectNodeContents(spanRef.current);
-      const sel = window.getSelection();
-      sel?.removeAllRanges();
-      sel?.addRange(range);
-    }
-  };
-
-  const handleBlur = (e: React.FocusEvent<HTMLSpanElement>) => {
-    const rawText = e.currentTarget.textContent?.trim() || '';
-    if (!rawText || rawText === `(${placeholder})`) {
-      onValueChange('');
-    } else {
-      onValueChange(rawText);
-    }
-  };
-
-  return (
-    <span
-      ref={spanRef}
-      contentEditable={isEditable}
-      suppressContentEditableWarning
-      onFocus={handleFocus}
-      onBlur={handleBlur}
-      className={clsx(
-        'transition-colors',
-        isEditable && 'outline-dashed outline-1 outline-amber-600/60 bg-amber-50/20 px-1 rounded',
-        isDefault ? 'text-gray-400 italic' : 'text-gray-800 font-normal',
-        className
-      )}
-    >
-      {displayContent}
-    </span>
-  );
-};
-```
-
----
-
-### 4.2 狀態管理與業務邏輯 (`useGuideStore.ts`)
-採用 **Zustand** 管理全域表單資料，支援日期推算與拖曳排序更新。
-
-```typescript
-// src/store/useGuideStore.ts
-import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import { TravelGuideData, SpotItem, HotelInfo } from '../types/guide';
-
-interface GuideState extends TravelGuideData {
-  updateField: <K extends keyof TravelGuideData>(field: K, value: TravelGuideData[K]) => void;
-  setFlightInTime: (timeStr: string) => void;
-  moveSpot: (dayIndex: number, spotIndex: number, direction: 'UP' | 'DOWN') => void;
-  addSpot: (dayIndex: number) => void;
-  deleteSpot: (dayIndex: number, spotId: string) => void;
-  addHotel: () => void;
-  updateHotel: (id: string, partial: Partial<HotelInfo>) => void;
-  deleteHotel: (id: string) => void;
-  importFromJSON: (data: TravelGuideData) => void;
-  resetToDefault: () => void;
-}
-
-export const useGuideStore = create<GuideState>()(
-  persist(
-    (set, get) => ({
-      // 初始狀態定義 (省略空字串設定)
-      firebaseDbUrl: '',
-      firebaseRoomId: '',
-      guideTitle: '',
-      guideSubtitle: '',
-      guideSummary: '',
-      flightInTime: '',
-      flightInNo: '',
-      flightInDep: '',
-      flightInArr: '',
-      flightOutTime: '',
-      flightOutNo: '',
-      flightOutDep: '',
-      flightOutArr: '',
-      hotels: [],
-      days: [],
-      shopping: [],
-      coupons: [],
-      docs: [],
-
-      updateField: (field, value) => set({ [field]: value }),
-
-      // 航班日期自動推算所有天數標題前綴
-      setFlightInTime: (timeStr) => {
-        set({ flightInTime: timeStr });
-        const dateMatch = timeStr.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
-        if (!dateMatch) return;
-
-        const startDate = new Date(parseInt(dateMatch[1]), parseInt(dateMatch[2]) - 1, parseInt(dateMatch[3]));
-        const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
-
-        const updatedDays = get().days.map((day, idx) => {
-          const currentDate = new Date(startDate);
-          currentDate.setDate(startDate.getDate() + idx);
-          const mm = String(currentDate.getMonth() + 1).padStart(2, '0');
-          const dd = String(currentDate.getDate()).padStart(2, '0');
-          const w = weekdays[currentDate.getDay()];
-          const prefix = `Day ${idx + 1} (${mm}/${dd} ${w})｜`;
-
-          const existingTitle = day.title;
-          const userSuffix = existingTitle.includes('｜') ? existingTitle.split('｜')[1] : existingTitle.replace(/^Day \d+/, '');
-          return { ...day, title: prefix + (userSuffix.trim() || '當日行程規劃') };
-        });
-
-        set({ days: updatedDays });
-      },
-
-      // 景點排序
-      moveSpot: (dayIndex, spotIndex, direction) => {
-        const targetDay = get().days[dayIndex];
-        if (!targetDay) return;
-        const newSpots = [...targetDay.spots];
-        const swapTarget = direction === 'UP' ? spotIndex - 1 : spotIndex + 1;
-
-        if (swapTarget < 0 || swapTarget >= newSpots.length) return;
-        const temp = newSpots[spotIndex];
-        newSpots[spotIndex] = newSpots[swapTarget];
-        newSpots[swapTarget] = temp;
-
-        const updatedDays = [...get().days];
-        updatedDays[dayIndex] = { ...targetDay, spots: newSpots };
-        set({ days: updatedDays });
-      },
-
-      // 飯店新增與更新
-      addHotel: () => set((state) => ({
-        hotels: [
-          ...state.hotels,
-          {
-            id: crypto.randomUUID(),
-            checkIn: '',
-            checkOut: '',
-            name: '',
-            address: '',
-            trans: '',
-          },
-        ],
-      })),
-
-      updateHotel: (id, partial) => set((state) => ({
-        hotels: state.hotels.map((h) => (h.id === id ? { ...h, ...partial } : h)),
-      })),
-
-      deleteHotel: (id) => set((state) => ({
-        hotels: state.hotels.filter((h) => h.id !== id),
-      })),
-
-      // ...其餘 CRUD Actions
-    }),
-    { name: 'travel_guide_store' }
-  )
-);
-```
-
----
-
-### 4.3 雲端雙向同步與版本時間戳記防護 (`useCloudSync.ts`)
-
-```typescript
-// src/hooks/useCloudSync.ts
-import { useEffect } from 'react';
-import { useGuideStore } from '../store/useGuideStore';
-
-export const useCloudSync = (localBuildTime: string) => {
-  const { firebaseDbUrl, firebaseRoomId, importFromJSON } = useGuideStore();
-
-  useEffect(() => {
-    if (!firebaseDbUrl || !firebaseRoomId) return;
-
-    let base = firebaseDbUrl.trim();
-    if (!base.endsWith('/')) base += '/';
-    const endpoint = `${base}guides/${encodeURIComponent(firebaseRoomId)}.json`;
-
-    const syncWithCloud = async () => {
-      try {
-        const res = await fetch(endpoint);
-        const data = await res.json();
-        const cloudTimestamp = data?.updatedAt ? new Date(data.updatedAt).getTime() : 0;
-        const localTimestamp = new Date(localBuildTime).getTime();
-
-        if (data?.state && cloudTimestamp > localTimestamp) {
-          // 雲端資料較新：執行更新
-          importFromJSON(data.state);
-        } else {
-          // 本地資料較新：推播覆蓋雲端，校正遠端舊紀錄
-          const currentState = useGuideStore.getState();
-          await fetch(endpoint, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              state: currentState,
-              updatedAt: new Date().toISOString(),
-            }),
-          });
-        }
-      } catch (err) {
-        console.warn('離線模式運行中，無法存取 Firebase:', err);
-      }
-    };
-
-    syncWithCloud();
-  }, [firebaseDbUrl, firebaseRoomId, localBuildTime]);
-};
-```
-
----
-
-### 4.4 單檔 HTML 編譯服務 (`singleFileCompiler.ts`)
-* **核心責任**：
-  1. 將目前 Zustand Store 中的最新資料序列化為 JSON。
-  2. 提取出打包後的純 CSS（Tailwind 編譯產物）與簡潔的 Vanilla JS / 輕量腳本。
-  3. 將完整內容包裝為一個**可雙擊開啟、離線可用、且具有原生列印樣式的獨立 HTML**。
-
-```typescript
-// src/services/singleFileCompiler.ts
-import { TravelGuideData } from '../types/guide';
-
-export const compileToSingleHtml = (data: TravelGuideData): string => {
-  const currentBuildTime = new Date().toISOString();
-  
-  // 組裝完整的 HTML、Tailwind Inline 樣式與輕量 DOM 互動腳本
-  return `<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>${data.guideTitle || '旅遊手冊'}</title>
-  <style>
-    /* 內嵌完整核心手冊樣式與列印樣式 (@media print) */
-    ${/* 注入產出的獨立樣式碼 */ ''}
-  </style>
-</head>
-<body>
-  <div id="guide-app-root">
-    ${/* 靜態預渲染出的手冊 DOM 結構 */ ''}
-  </div>
-  <script>
-    const INITIAL_DATA = ${JSON.stringify(data)};
-    const LOCAL_BUILD_TIME = "${currentBuildTime}";
-    // 注入行內編輯、地圖搜尋自動更新、全選 Placeholder 引擎與 Firebase 同步腳本
-  <\/script>
-</body>
-</html>`;
-};
-```
-
----
-
-## 5. UI 與排版設計標準規範
-
-| 模組 | 檢視模式 (Preview) 規格 | 編輯模式 (Edit Mode) 額外控制項 |
-| :--- | :--- | :--- |
-| **頂部導航** | 顯示行程主標題、副標題、摘要卡片 | 標題可直接點擊編輯；空白時呈現灰階斜體 `(大標題)` |
-| **航班時間** | 去/回程均拆分為 `時間`、`班機代碼`、`出發機場`、`抵達機場` 4 個獨立欄位 | 點選 Placeholder 自動全選文字 |
-| **住宿飯店** | 顯示飯店名稱（附 Google Maps 連結）、地址、交通與入住期間 | 提供 **「➕ 新增飯店」**、**「✕ 刪除飯店」**；日期支援原生 `<input type="date">` 選取器 |
-| **每日行程** | 景點名稱失焦自動換 Google Maps URL；交通路線支援 Google 導航路線按鈕 | 每個景點時段提供 **「⬆」**、**「⬇」** 快速排序與刪除；提供 **「📍 點我編輯可生成 Google 路線」** 按鈕 |
-| **採買清單** | 雙欄式表格：`類別` 與 `建議地點與提醒`（無第三欄操作鈕） | 支援列新增與內文字編輯 |
-| **折疊選單** | 所有主選單及 Day 1 ~ N 子選單**預設收合**（移除 `open` 屬性） | 保持一致折疊行為 |
-| **列印模式** | 觸發 `window.print()` 時強制展開所有折疊區塊，隱藏管理與編輯按鈕，卡片設定 `break-inside: avoid` | 列印完成自動恢復原本折疊狀態 |
-
----
-
-## 6. 相依套件設定 (`package.json`)
-
-```json
-{
-  "name": "react-travel-guide-app",
-  "private": true,
-  "version": "2.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "zustand": "^4.5.2",
-    "clsx": "^2.1.1",
-    "tailwind-merge": "^2.3.0",
-    "lucide-react": "^0.383.0"
-  },
-  "devDependencies": {
-    "@types/react": "^18.3.2",
-    "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^4.3.0",
-    "autoprefixer": "^10.4.19",
-    "postcss": "^8.4.38",
-    "tailwindcss": "^3.4.3",
-    "typescript": "^5.4.5",
-    "vite": "^5.2.11",
-    "vite-plugin-pwa": "^0.20.0"
-  }
-}
-```
+### 4.4 大廳與產生器 UI/UX 全面升級
+1. **系統正名與章節編號順延 (`0 ~ 8`)**：
+   * 系統名稱統一改為 **「✈️ 旅遊手冊管理中心」**。
+   * 於 `🌟 0. 旅遊手冊命名與副標題`（含唯讀出發／結束日期自動連動去回程航班日期）後方新增 **「`👥 1. 旅行夥伴`」** 文字框章節（[CompanionSection.tsx](file:///d:/AnnaDome/src/components/studio/CompanionSection.tsx)），後續章節依序順延為 `✈️ 2. 航班時間資訊（去程／回程分區＋日期時間點選器）`、`🏨 3. 飯店資訊`、`🗓️ 4. 每日行程與景點規劃`、`🛍️ 5. 購物採買清單`、`🎁 6. 電子優惠券設定`、`📎 7. 電子票券與重要文件`、`📝 8. 備註（純文字章節）`。
+2. **專案封面更換與手冊頂部橫幅底圖連動**（[imageUtils.ts](file:///d:/AnnaDome/src/services/imageUtils.ts)、[HeroBannerView.tsx](file:///d:/AnnaDome/src/components/guide-view/HeroBannerView.tsx)）：
+   * 每張大廳卡片左上角皆提供 **「`🖼️ 更換封面`」** 按鈕，支援「📁 選擇本機照片上傳（Canvas 自動壓縮轉 Base64 同步 JSON 與 Firebase）」、「🔗 貼上網路圖片網址」及「🎨 14 張無地名限制、無文字遮罩之通用純圖片精選封面（海灘、歐美、夏日、冬日、城市、山林、美食各 2 張）」。
+   * 手冊頂部橫幅（Hero Banner）底圖自動套用該專案的封面圖片並疊加左深右透漸層遮罩。
+3. **「`✈️ 旅行中`」狀態標籤與唯讀預覽開窗**（[ProjectHubView.tsx](file:///d:/AnnaDome/src/components/hub/ProjectHubView.tsx)、[PreviewModal.tsx](file:///d:/AnnaDome/src/components/guide-view/PreviewModal.tsx)）：
+   * 當 `出發日期 <= TODAY <= 結束日期` 時，大廳卡片右上角自動顯示翠綠色 **`✈️ 旅行中`** 標籤。
+   * 「📜 典藏回憶｜已完成專案」卡片預設僅顯示「📖 翻閱手冊」，點擊直接彈出唯讀手冊預覽視窗（視窗右上角提供小巧的「✏️ 編輯手冊」按鈕，下方固定提供「📄 下載 PDF」與「💾 下載網頁」）。
