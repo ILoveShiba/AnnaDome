@@ -147,6 +147,11 @@ d:\AnnaDome\
    * 於 `🌟 0. 旅遊手冊命名與副標題` 中，「出發日期」與「結束日期」並排為同一列（2 欄），並將 **「`大廳卡片封面圖片（網址或本機上傳）：`」** 往下一行獨立成完整寬度的一列。
 5. **共編者三選一進入模式與雲端空間瘦身保護**（[LoginView.tsx](file:///d:/AnnaDome/src/components/auth/LoginView.tsx)、[useCloudSync.ts](file:///d:/AnnaDome/src/hooks/useCloudSync.ts)）：
    * 受邀者點開 `?room=<房間ID>` 連結可選擇 **「👋 訪客共編（只需設定名稱）」**、**「🔐 帳號登入」** 或 **「✨ 註冊帳號」**；非 `admin` 帳號於公共 `/shared_rooms/` 共編時自動剔除大型 Base64 圖片，單一共編房間僅占約 `4KB`。
+6. **專案主人刪除／永久刪除共編專案之雙向聯動清理機制**（[useGuideStore.ts](file:///d:/AnnaDome/src/store/useGuideStore.ts)、[useCloudSync.ts](file:///d:/AnnaDome/src/hooks/useCloudSync.ts)、[ProjectHubView.tsx](file:///d:/AnnaDome/src/components/hub/ProjectHubView.tsx)）：
+   * **情境 A（主人移至刪除暫存區）**：當刪除者為該專案主人（`!project.isSharedWithMe`）且該專案曾開啟共編，立即向 Firebase `/shared_rooms/<roomId>.json` 寫入 `{ deletedByOwner: true, deletedAt, ownerId, ownerName }`。
+   * **情境 B（主人從暫存區還原）**：主人點擊「↩️ 還原專案」時，自動將共編專案資料重新推播恢復至 `/shared_rooms/<roomId>.json`。
+   * **情境 C（主人永久刪除／清空暫存區／10天到期）**：直接對 `/shared_rooms/<roomId>.json` 發送 `HTTP DELETE` 徹底清除雲端節點。
+   * **受邀共編者端自動同步移除**：受邀共編者於大廳（登入、返回大廳、視窗聚焦、每 15 秒背景巡檢 `pruneDeletedSharedProjectsForCollaborator`）或編輯器內同步時，一旦偵測到雲端房間為 `deletedByOwner === true` 或 `null`，立即自動從受邀者大廳的「🤝 受邀參與的他人共編專案」清單與本機快取中移除該專案（並禁止受邀者端將舊資料推回雲端）。
 
 ### 4.3 本機資料夾防注音重複生檔、「🗑️ 刪除」切換模式與 10 天刪除暫存區
 1. **防注音半成品檔名與同 ID 舊檔清理**（[localFolderSync.ts](file:///d:/AnnaDome/src/services/localFolderSync.ts)）：

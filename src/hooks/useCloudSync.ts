@@ -25,11 +25,18 @@ export const useCloudSync = (localBuildTime: string) => {
   const buildTime = useGuideStore((s) => s.buildTime);
   const importFromJSON = useGuideStore((s) => s.importFromJSON);
   const getSnapshot = useGuideStore((s) => s.getSnapshot);
+  const removeSharedProjectDeletedByOwner = useGuideStore(
+    (s) => s.removeSharedProjectDeletedByOwner
+  );
 
   const currentUser = useAuthStore((s) => s.currentUser);
+  const logout = useAuthStore((s) => s.logout);
   const currentProjectMeta = projects.find((p) => p.id === currentProjectId);
+  const isCollaboratorOrGuest = Boolean(
+    currentProjectMeta?.isSharedWithMe || currentUser?.role === 'guest'
+  );
   const isCoEditActive = Boolean(
-    isCoEditing || currentProjectMeta?.isCoEditing || currentProjectMeta?.isSharedWithMe || currentUser?.role === 'guest'
+    isCoEditing || currentProjectMeta?.isCoEditing || isCollaboratorOrGuest
   );
 
   const [status, setStatus] = useState<SyncStatus>('idle');
@@ -115,6 +122,20 @@ export const useCloudSync = (localBuildTime: string) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 
+        // 若受邀共編者（或訪客）發現雲端房間已被專案主人刪除（deletedByOwner === true 或被永久刪除為 null）
+        if (isCollaboratorOrGuest && (!data || data.deletedByOwner === true || !data.state)) {
+          isApplyingCloudRef.current = true;
+          const roomOrPid = currentProjectId || firebaseRoomId;
+          if (currentUser?.role === 'guest') {
+            alert('⚠️ 專案主人已刪除此共編專案，即將結束訪客共編模式。');
+            logout();
+          } else {
+            alert('⚠️ 專案主人已刪除此共編專案，系統已自動從您的大廳移除此專案。');
+            removeSharedProjectDeletedByOwner(roomOrPid || '');
+          }
+          return;
+        }
+
         const cloudTimestamp = data?.updatedAt ? new Date(data.updatedAt).getTime() : 0;
         const localTimestamp = new Date(
           lastPushedBuildTimeRef.current || buildTime || localBuildTime
@@ -134,8 +155,8 @@ export const useCloudSync = (localBuildTime: string) => {
           const editor = data.updatedBy || '旅伴';
           setLastEditor(editor);
           setMessage(`已同步旅伴「${editor}」的最新編輯內容`);
-        } else if (!data?.state && !silent) {
-          // 雲端房間尚無資料時，主動將此專案初始化推上共編房間
+        } else if (!data?.state && !isCollaboratorOrGuest && !silent) {
+          // 僅限專案主人：雲端房間尚無資料時，主動將此專案初始化推上共編房間
           await pushToCloud();
         } else if (!silent) {
           setStatus('synced');

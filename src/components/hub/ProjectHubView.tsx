@@ -23,8 +23,12 @@ export const ProjectHubView: React.FC = () => {
   const emptyTrash = useGuideStore((s) => s.emptyTrash);
   const importProjectToHubFromJSON = useGuideStore((s) => s.importProjectToHubFromJSON);
   const updateProjectCover = useGuideStore((s) => s.updateProjectCover);
+  const activeView = useGuideStore((s) => s.activeView);
   const autoPullHubFromCloudIfConfigured = useGuideStore(
     (s) => s.autoPullHubFromCloudIfConfigured
+  );
+  const pruneDeletedSharedProjectsForCollaborator = useGuideStore(
+    (s) => s.pruneDeletedSharedProjectsForCollaborator
   );
 
   const currentUser = useAuthStore((s) => s.currentUser);
@@ -48,12 +52,29 @@ export const ProjectHubView: React.FC = () => {
   const [isCompressingCover, setIsCompressingCover] = useState<boolean>(false);
   const coverUploadInputRef = useRef<HTMLInputElement>(null);
 
-  // 登入或進入大廳時，若該帳號已設定 Firebase 雲端網址，自動拉取最新專案與封面圖片（讓跨瀏覽器開啟自動看到最新照片）
+  // 登入或進入大廳時，若該帳號已設定 Firebase 雲端網址，自動拉取最新專案與封面圖片，並自動巡檢受邀共編專案是否已被主人刪除
   useEffect(() => {
-    if (currentUser) {
+    if (currentUser && activeView === 'hub') {
       autoPullHubFromCloudIfConfigured();
+      pruneDeletedSharedProjectsForCollaborator();
     }
-  }, [currentUser?.userId]);
+  }, [currentUser?.userId, activeView]);
+
+  // 在大廳視窗重新獲得焦點或每 15 秒定期巡檢「受邀參與的他人共編專案」是否已被原主人刪除
+  useEffect(() => {
+    if (!currentUser || activeView !== 'hub') return;
+    const onFocus = () => {
+      pruneDeletedSharedProjectsForCollaborator();
+    };
+    window.addEventListener('focus', onFocus);
+    const timer = window.setInterval(() => {
+      pruneDeletedSharedProjectsForCollaborator();
+    }, 15000);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.clearInterval(timer);
+    };
+  }, [currentUser?.userId, activeView]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const today = useMemo(() => {

@@ -68,8 +68,14 @@ function loadAndPurgeUserTrash(userId: string): TrashProjectEntry[] {
       if (!item || !item.project) return false;
       const exp = item.expiresAt ? new Date(item.expiresAt).getTime() : 0;
       const del = item.deletedAt ? new Date(item.deletedAt).getTime() : 0;
-      if (exp && now >= exp) return false;
-      if (del && now - del >= TRASH_RETENTION_MS) return false;
+      const isExpired = (exp && now >= exp) || (del && now - del >= TRASH_RETENTION_MS);
+      if (isExpired) {
+        if (!item.project.isSharedWithMe && (item.project.isCoEditing || item.guideData?.isCoEditing)) {
+          const roomId = item.project.roomId || item.guideData?.firebaseRoomId || item.project.id;
+          permanentlyRemoveSharedRoomByOwner(roomId, getGlobalFirebaseUrlForUser(userId));
+        }
+        return false;
+      }
       return true;
     });
     if (valid.length !== parsed.length) {
@@ -84,6 +90,86 @@ function loadAndPurgeUserTrash(userId: string): TrashProjectEntry[] {
 function getGlobalFirebaseUrlForUser(userId: string): string {
   const settings = loadUserSettings(userId);
   return (settings.firebaseDbUrl || '').trim();
+}
+
+function getSharedRoomEndpointUrl(roomId: string, customBaseUrl?: string): string {
+  let base = (customBaseUrl || ADMIN_DEFAULT_FIREBASE_DB_URL).trim();
+  if (!base.endsWith('/')) base += '/';
+  return `${base}shared_rooms/${encodeURIComponent(roomId.trim())}.json`;
+}
+
+/**
+ * 情境 A：當專案主人將已開啟共編的專案移至刪除暫存區時，
+ * 立即向 Firebase /shared_rooms/<roomId>.json 寫入 deletedByOwner: true
+ */
+async function markSharedRoomDeletedByOwner(
+  roomId: string,
+  ownerId: string,
+  ownerName: string,
+  customBaseUrl?: string
+): Promise<void> {
+  if (!roomId || !roomId.trim()) return;
+  try {
+    const endpoint = getSharedRoomEndpointUrl(roomId, customBaseUrl);
+    await fetch(endpoint, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        deletedByOwner: true,
+        deletedAt: new Date().toISOString(),
+        ownerId,
+        ownerName,
+      }),
+    });
+  } catch {}
+}
+
+/**
+ * 情境 B：當專案主人從刪除暫存區還原共編專案時，重新將完整行程推播回 /shared_rooms/<roomId>.json
+ */
+async function restoreSharedRoomByOwner(
+  roomId: string,
+  guideData: TravelGuideData,
+  ownerId: string,
+  ownerName: string,
+  customBaseUrl?: string
+): Promise<void> {
+  if (!roomId || !roomId.trim()) return;
+  try {
+    const endpoint = getSharedRoomEndpointUrl(roomId, customBaseUrl);
+    const nowIso = new Date().toISOString();
+    const sanitizedState = {
+      ...guideData,
+      firebaseDbUrl: '',
+      isCoEditing: true,
+      ownerId: guideData.ownerId || ownerId,
+      ownerName: guideData.ownerName || ownerName,
+    };
+    await fetch(endpoint, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        state: sanitizedState,
+        updatedAt: nowIso,
+        updatedBy: ownerName,
+      }),
+    });
+  } catch {}
+}
+
+/**
+ * 情境 C：當專案主人執行「永久刪除」、「清空暫存區」或「10 天到期自動清理」時，
+ * 徹底從 Firebase /shared_rooms/<roomId>.json 抹除該共編房間節點
+ */
+async function permanentlyRemoveSharedRoomByOwner(
+  roomId: string,
+  customBaseUrl?: string
+): Promise<void> {
+  if (!roomId || !roomId.trim()) return;
+  try {
+    const endpoint = getSharedRoomEndpointUrl(roomId, customBaseUrl);
+    await fetch(endpoint, { method: 'DELETE' });
+  } catch {}
 }
 
 export const SAMPLE_PROJECT_IDS = new Set([
@@ -1033,6 +1119,8 @@ export interface GuideState extends TravelGuideData {
   setPreviewModalOpen: (open: boolean) => void;
   updateProjectCover: (projectId: string, coverUrl: string) => void;
   autoPullHubFromCloudIfConfigured: () => Promise<void>;
+  pruneDeletedSharedProjectsForCollaborator: () => Promise<void>;
+  removeSharedProjectDeletedByOwner: (projectIdOrRoomId: string) => void;
   joinSharedRoomProject: (roomId: string, asGuest?: boolean) => Promise<boolean>;
   createNewBlankTripAndEnter: () => void;
   returnToHub: () => void;
@@ -1508,6 +1596,85 @@ export const useGuideStore = create<GuideState>()((set, get) => {
           }
         }
       } catch {}
+      // 同步巡檢受邀共編的他人專案是否已被原主人刪除
+      await get().pruneDeletedSharedProjectsForCollaborator();
+    },
+
+    pruneDeletedSharedProjectsForCollaborator: async () => {
+      const user = useAuthStore.getState().currentUser;
+      if (!user || user.role === 'guest') return;
+      const currentProjects = get().projects;
+      const sharedProjects = currentProjects.filter((p) => Boolean(p.isSharedWithMe));
+      if (sharedProjects.length === 0) return;
+
+      const deletedIds = new Set<string>();
+      await Promise.all(
+        sharedProjects.map(async (proj) => {
+          const roomId = (proj.roomId || proj.id || '').trim();
+          if (!roomId) return;
+          try {
+            const endpoint = getSharedRoomEndpointUrl(roomId);
+            const res = await fetch(endpoint);
+            if (!res.ok) return;
+            const data = await res.json();
+            // 若雲端節點為 null（已被主人永久刪除）或標記 deletedByOwner === true（已被主人移入刪除暫存區）
+            if (!data || data.deletedByOwner === true || !data.state) {
+              deletedIds.add(proj.id);
+            }
+          } catch {}
+        })
+      );
+
+      if (deletedIds.size > 0) {
+        const latestProjects = get().projects;
+        const nextProjects = latestProjects.filter((p) => !deletedIds.has(p.id));
+        deletedIds.forEach((pid) => {
+          safeRemoveStorage(getGuideKeyForUser(user.userId, pid));
+          removeProjectFileFromLocalTrash(user.userId, user.username, pid).catch(() => {});
+        });
+        safeSetStorage(getHubKeyForUser(user.userId), JSON.stringify(nextProjects));
+        syncProjectToLocalFolder(user.userId, user.username, nextProjects, null, null, true).catch(
+          () => {}
+        );
+        scheduleAutoPushHubToFirebase(user.userId, user.username, nextProjects, true);
+
+        const activePid = get().currentProjectId;
+        if (activePid && deletedIds.has(activePid)) {
+          set({
+            projects: nextProjects,
+            activeView: 'hub',
+            currentProjectId: null,
+            isPreviewModalOpen: false,
+          });
+        } else {
+          set({ projects: nextProjects });
+        }
+      }
+    },
+
+    removeSharedProjectDeletedByOwner: (projectIdOrRoomId) => {
+      const userId = getActiveUserId();
+      const username = useAuthStore.getState().currentUser?.username || 'guest';
+      const currentProjects = get().projects;
+      const target = currentProjects.find(
+        (p) =>
+          p.isSharedWithMe &&
+          (p.id === projectIdOrRoomId || p.roomId === projectIdOrRoomId)
+      );
+      const targetId = target ? target.id : projectIdOrRoomId;
+      const nextProjects = currentProjects.filter((p) => p.id !== targetId);
+
+      safeRemoveStorage(getGuideKeyForUser(userId, targetId));
+      safeSetStorage(getHubKeyForUser(userId), JSON.stringify(nextProjects));
+      syncProjectToLocalFolder(userId, username, nextProjects, null, null, true).catch(() => {});
+      scheduleAutoPushHubToFirebase(userId, username, nextProjects, true);
+
+      set({
+        projects: nextProjects,
+        activeView: 'hub',
+        currentProjectId: null,
+        isPreviewModalOpen: false,
+      });
     },
 
     joinSharedRoomProject: async (roomId, asGuest = false) => {
@@ -1524,26 +1691,37 @@ export const useGuideStore = create<GuideState>()((set, get) => {
 
       let cloudGuide: Partial<TravelGuideData> | null = null;
       let cloudUpdatedBy = '';
+      let isDeletedByOwnerInCloud = false;
       try {
         const res = await fetch(sharedEndpoint);
         if (res.ok) {
           const data = await res.json();
-          if (data?.state) {
+          if (data?.deletedByOwner === true) {
+            isDeletedByOwnerInCloud = true;
+          } else if (data?.state) {
             cloudGuide = data.state;
             cloudUpdatedBy = data.updatedBy || '';
           }
         }
-        if (!cloudGuide) {
+        if (!cloudGuide && !isDeletedByOwnerInCloud) {
           const resLegacy = await fetch(legacyGuideEndpoint);
           if (resLegacy.ok) {
             const dataLegacy = await resLegacy.json();
-            if (dataLegacy?.state) {
+            if (dataLegacy?.deletedByOwner === true) {
+              isDeletedByOwnerInCloud = true;
+            } else if (dataLegacy?.state) {
               cloudGuide = dataLegacy.state;
               cloudUpdatedBy = dataLegacy.updatedBy || '';
             }
           }
         }
       } catch {}
+
+      if (isDeletedByOwnerInCloud) {
+        get().removeSharedProjectDeletedByOwner(cleanRoom);
+        alert('⚠️ 此共編專案已被專案主人刪除，無法進入共編房間。');
+        return false;
+      }
 
       const currentList = get().projects;
       const existingMeta = currentList.find(
@@ -1745,6 +1923,19 @@ export const useGuideStore = create<GuideState>()((set, get) => {
       safeSetStorage(getHubKeyForUser(userId), JSON.stringify(nextProjects));
       safeRemoveStorage(getGuideKeyForUser(userId, projectId));
 
+      // 情境 A：若刪除者為該專案主人 (!isSharedWithMe) 且該專案曾開啟共編，立即向 /shared_rooms/<roomId>.json 寫入 deletedByOwner: true
+      const isProjectOwner = !targetMeta?.isSharedWithMe;
+      const hadCoEditing = Boolean(targetMeta?.isCoEditing || guideData.isCoEditing);
+      if (isProjectOwner && hadCoEditing) {
+        const targetRoomId = targetMeta?.roomId || guideData.firebaseRoomId || projectId;
+        markSharedRoomDeletedByOwner(
+          targetRoomId,
+          targetMeta?.ownerId || guideData.ownerId || userId,
+          targetMeta?.ownerName || guideData.ownerName || username,
+          getGlobalFirebaseUrlForUser(userId)
+        );
+      }
+
       // 將本機資料夾內的實體檔案移入「_刪除暫存區_10天自動清理」並更新專案總表與 Firebase 雲端
       moveProjectFileToLocalTrash(userId, username, projectId, guideData, deletedAt).catch(
         () => {}
@@ -1788,6 +1979,17 @@ export const useGuideStore = create<GuideState>()((set, get) => {
         moveProjectFileToLocalTrash(userId, username, meta.id, guideData, deletedAt).catch(
           () => {}
         );
+
+        // 情境 A：若為專案主人且曾開啟共編，寫入 deletedByOwner: true
+        if (!meta.isSharedWithMe && (meta.isCoEditing || guideData.isCoEditing)) {
+          const targetRoomId = meta.roomId || guideData.firebaseRoomId || meta.id;
+          markSharedRoomDeletedByOwner(
+            targetRoomId,
+            meta.ownerId || guideData.ownerId || userId,
+            meta.ownerName || guideData.ownerName || username,
+            getGlobalFirebaseUrlForUser(userId)
+          );
+        }
 
         return {
           project: meta,
@@ -1835,6 +2037,18 @@ export const useGuideStore = create<GuideState>()((set, get) => {
         JSON.stringify(entry.guideData)
       );
 
+      // 情境 B：若專案主人從暫存區還原先前已開啟共編的專案，重新將共編資料寫回 /shared_rooms/<roomId>.json
+      if (!entry.project.isSharedWithMe && (entry.project.isCoEditing || entry.guideData.isCoEditing)) {
+        const targetRoomId = entry.project.roomId || entry.guideData.firebaseRoomId || projectId;
+        restoreSharedRoomByOwner(
+          targetRoomId,
+          entry.guideData,
+          entry.project.ownerId || entry.guideData.ownerId || userId,
+          entry.project.ownerName || entry.guideData.ownerName || username,
+          getGlobalFirebaseUrlForUser(userId)
+        );
+      }
+
       // 從本機暫存區移除並重新寫回正式資料夾與 Firebase 雲端
       removeProjectFileFromLocalTrash(userId, username, projectId).catch(() => {});
       syncProjectToLocalFolder(
@@ -1856,9 +2070,21 @@ export const useGuideStore = create<GuideState>()((set, get) => {
     permanentlyDeleteFromTrash: (projectId) => {
       const userId = getActiveUserId();
       const username = useAuthStore.getState().currentUser?.username || 'guest';
-      const nextTrash = loadAndPurgeUserTrash(userId).filter(
-        (t) => t.project.id !== projectId
-      );
+      const currentTrash = loadAndPurgeUserTrash(userId);
+      const targetEntry = currentTrash.find((t) => t.project.id === projectId);
+
+      // 情境 C：若專案主人永久刪除此共編專案，徹底從 /shared_rooms/<roomId>.json 刪除節點
+      if (
+        targetEntry &&
+        !targetEntry.project.isSharedWithMe &&
+        (targetEntry.project.isCoEditing || targetEntry.guideData?.isCoEditing)
+      ) {
+        const targetRoomId =
+          targetEntry.project.roomId || targetEntry.guideData?.firebaseRoomId || projectId;
+        permanentlyRemoveSharedRoomByOwner(targetRoomId, getGlobalFirebaseUrlForUser(userId));
+      }
+
+      const nextTrash = currentTrash.filter((t) => t.project.id !== projectId);
       safeSetStorage(getTrashKeyForUser(userId), JSON.stringify(nextTrash));
       removeProjectFileFromLocalTrash(userId, username, projectId).catch(() => {});
       set({ trashedProjects: nextTrash });
@@ -1867,6 +2093,20 @@ export const useGuideStore = create<GuideState>()((set, get) => {
     emptyTrash: () => {
       const userId = getActiveUserId();
       const username = useAuthStore.getState().currentUser?.username || 'guest';
+      const currentTrash = loadAndPurgeUserTrash(userId);
+
+      // 情境 C：清空暫存區時，將主人擁有的共編專案一併從 /shared_rooms/ 徹底刪除
+      currentTrash.forEach((entry) => {
+        if (
+          !entry.project.isSharedWithMe &&
+          (entry.project.isCoEditing || entry.guideData?.isCoEditing)
+        ) {
+          const targetRoomId =
+            entry.project.roomId || entry.guideData?.firebaseRoomId || entry.project.id;
+          permanentlyRemoveSharedRoomByOwner(targetRoomId, getGlobalFirebaseUrlForUser(userId));
+        }
+      });
+
       safeSetStorage(getTrashKeyForUser(userId), JSON.stringify([]));
       removeProjectFileFromLocalTrash(userId, username, '*').catch(() => {});
       set({ trashedProjects: [] });
