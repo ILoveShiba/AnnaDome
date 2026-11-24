@@ -82,13 +82,22 @@ export const ProjectHubView: React.FC = () => {
 
   const activeProjects = useMemo(
     () =>
-      sortProjectList(projects.filter((p) => !p.endDate || p.endDate >= today)),
+      sortProjectList(
+        projects.filter((p) => !p.isSharedWithMe && (!p.endDate || p.endDate >= today))
+      ),
     [projects, today, sortField, sortOrder]
+  );
+
+  const sharedWithMeProjects = useMemo(
+    () => sortProjectList(projects.filter((p) => Boolean(p.isSharedWithMe))),
+    [projects, sortField, sortOrder]
   );
 
   const completedProjects = useMemo(
     () =>
-      sortProjectList(projects.filter((p) => p.endDate && p.endDate < today)),
+      sortProjectList(
+        projects.filter((p) => !p.isSharedWithMe && Boolean(p.endDate && p.endDate < today))
+      ),
     [projects, today, sortField, sortOrder]
   );
 
@@ -115,6 +124,9 @@ export const ProjectHubView: React.FC = () => {
       project.cover ||
       'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=600&q=80';
 
+    const isSharedProject = Boolean(project.isSharedWithMe);
+    const isOwnerCoEditing = !isSharedProject && Boolean(project.isCoEditing);
+
     const isTravelingNow =
       !isCompleted &&
       Boolean(project.startDate) &&
@@ -128,7 +140,11 @@ export const ProjectHubView: React.FC = () => {
         className={`bg-white border rounded-[14px] overflow-hidden shadow-sm hover:-translate-y-1 hover:shadow-md transition-all flex flex-col ${
           isDeleteMode
             ? 'border-rose-300 ring-2 ring-rose-200/80'
-            : 'border-slate-200'
+            : isSharedProject
+              ? 'border-indigo-300 ring-1 ring-indigo-100'
+              : isOwnerCoEditing
+                ? 'border-emerald-300 ring-1 ring-emerald-100'
+                : 'border-slate-200'
         }`}
       >
         <div
@@ -159,9 +175,46 @@ export const ProjectHubView: React.FC = () => {
           >
             {isCompleted ? '已完結' : isTravelingNow ? '✈️ 旅行中' : '籌備中'}
           </span>
+
+          {/* 受邀共編者視角：於封面底部顯示紫色／藍色「👤 擁有者」提醒標籤 */}
+          {isSharedProject && (
+            <div className="absolute bottom-2 left-2.5 right-2.5 flex items-center justify-between gap-1.5">
+              <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-md bg-indigo-600/95 text-white shadow-xs backdrop-blur-xs inline-flex items-center gap-1">
+                <span>👤 擁有者：{project.ownerName || '旅伴'}</span>
+              </span>
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-purple-700/90 text-purple-100 shadow-xs">
+                🤝 受邀共編
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="p-4 flex-1 flex flex-col">
+          {/* 共編房間主人端的大廳卡片：呈現一個【共編中】的提醒小視窗 */}
+          {isOwnerCoEditing && (
+            <div className="mb-2.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-between gap-2 text-xs">
+              <span className="font-bold text-emerald-800 inline-flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>【共編中】旅伴共同編輯已開啟</span>
+              </span>
+              <span className="text-[11px] font-mono text-emerald-700 bg-emerald-100/80 px-1.5 py-0.5 rounded">
+                ID: {project.roomId || project.id}
+              </span>
+            </div>
+          )}
+
+          {/* 受邀共編者端的大廳卡片：呈現擁有者與共編房間資訊 */}
+          {isSharedProject && (
+            <div className="mb-2.5 px-2.5 py-1.5 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-between gap-2 text-xs">
+              <span className="font-bold text-indigo-900">
+                👤 擁有者：{project.ownerName || '旅伴'}
+              </span>
+              <span className="text-[11px] font-mono text-indigo-700 bg-indigo-100/80 px-1.5 py-0.5 rounded">
+                ID: {project.roomId || project.id}
+              </span>
+            </div>
+          )}
+
           <div className="text-[1.1rem] font-bold text-slate-900 mb-1.5 line-clamp-1">
             {project.title}
           </div>
@@ -170,8 +223,8 @@ export const ProjectHubView: React.FC = () => {
           </div>
 
           <div className="mt-auto flex items-center gap-2">
-            {/* 僅「籌備與進行中專案」預設顯示編輯行程按鈕；「已完成專案」預設只顯示翻閱手冊 */}
-            {!isCompleted && (
+            {/* 籌備中專案或受邀共編專案皆可點擊編輯行程 */}
+            {(!isCompleted || isSharedProject) && (
               <button
                 type="button"
                 onClick={() => openProjectInGenerator(project.id, false)}
@@ -356,7 +409,27 @@ export const ProjectHubView: React.FC = () => {
           </div>
         ) : (
           <div className="bg-white border border-dashed border-slate-300 rounded-xl p-8 text-center text-slate-400 text-sm">
-            目前沒有籌備中的旅程，點擊右上角「➕ 開啟新旅程」立即開始規劃！
+            目前沒有籌備中的個人旅程，點擊右上角「➕ 開啟新旅程」立即開始規劃！
+          </div>
+        )}
+
+        {/* 受邀參與的他人共編專案（區分他人擁有的專案 vs 個人專案） */}
+        <div className="text-[1.15rem] font-semibold mt-9 mb-4 flex items-center gap-2 text-indigo-900">
+          <span>🤝 受邀參與的他人共編專案</span>
+          <span className="text-xs bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded-full font-bold">
+            {sharedWithMeProjects.length}
+          </span>
+        </div>
+
+        {sharedWithMeProjects.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {sharedWithMeProjects.map((p) =>
+              renderCard(p, Boolean(p.endDate && p.endDate < today))
+            )}
+          </div>
+        ) : (
+          <div className="bg-indigo-50/40 border border-dashed border-indigo-200 rounded-xl p-6 text-center text-slate-400 text-sm">
+            目前尚無受邀參與的他人共編專案（當您點擊旅伴分享的專屬共編連結並以帳號登入時，該專案將自動歸類於此區塊）
           </div>
         )}
 

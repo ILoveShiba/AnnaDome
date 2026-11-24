@@ -4,6 +4,7 @@ import { useAuthStore } from '../../store/useAuthStore';
 
 export interface HeaderBarProps {
   lastSavedAt: string;
+  onEnableCoEditing?: () => void;
 }
 
 /**
@@ -11,8 +12,15 @@ export interface HeaderBarProps {
  * - 固定於畫面最上方 (sticky top-0 z-40)，不會隨畫面捲動而被捲走
  * - 僅保留雙欄同步模式，左側編輯表單、右側唯讀即時預覽
  */
-export const HeaderBar: React.FC<HeaderBarProps> = ({ lastSavedAt }) => {
+export const HeaderBar: React.FC<HeaderBarProps> = ({
+  lastSavedAt,
+  onEnableCoEditing,
+}) => {
   const guideTitle = useGuideStore((s) => s.guideTitle);
+  const currentProjectId = useGuideStore((s) => s.currentProjectId);
+  const isCoEditing = useGuideStore((s) => s.isCoEditing);
+  const projects = useGuideStore((s) => s.projects);
+  const updateField = useGuideStore((s) => s.updateField);
   const returnToHub = useGuideStore((s) => s.returnToHub);
   const createNewBlankTripAndEnter = useGuideStore((s) => s.createNewBlankTripAndEnter);
   const saveCurrentProjectToHub = useGuideStore((s) => s.saveCurrentProjectToHub);
@@ -153,8 +161,33 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({ lastSavedAt }) => {
             </h1>
           </div>
 
-          {/* 即時預覽開窗（內含下載 PDF 與下載網頁）及暫存備份控制按鈕 */}
+          {/* 開啟共同編輯、即時預覽開窗（內含下載 PDF 與下載網頁）及暫存備份控制按鈕 */}
           <div className="flex flex-wrap items-center gap-1.5">
+            {!isGuest && (
+              <button
+                type="button"
+                onClick={() => {
+                  const currentMeta = projects.find((p) => p.id === currentProjectId);
+                  if (currentMeta?.isSharedWithMe) {
+                    return;
+                  }
+                  const nextVal = !isCoEditing;
+                  updateField('isCoEditing', nextVal);
+                  if (nextVal && onEnableCoEditing) {
+                    onEnableCoEditing();
+                  }
+                }}
+                className={`px-3 py-1 rounded-md text-xs font-bold cursor-pointer inline-flex items-center gap-1 border transition-colors shadow-xs ${
+                  isCoEditing || projects.find((p) => p.id === currentProjectId)?.isSharedWithMe
+                    ? 'bg-emerald-600 hover:bg-emerald-700 border-emerald-400 text-white'
+                    : 'bg-blue-600 hover:bg-blue-500 border-blue-400/60 text-white'
+                }`}
+              >
+                {isCoEditing || projects.find((p) => p.id === currentProjectId)?.isSharedWithMe
+                  ? '👥 共同編輯開啟中'
+                  : '🤝 開啟共同編輯'}
+              </button>
+            )}
             <button
               type="button"
               id="btnPreview"

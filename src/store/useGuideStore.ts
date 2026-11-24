@@ -464,6 +464,9 @@ const HCMC_SAMPLE_DATA: TravelGuideData = {
 export const createBlankGuideData = (projectId = '', userId = getActiveUserId()): TravelGuideData => ({
   firebaseDbUrl: getGlobalFirebaseUrlForUser(userId),
   firebaseRoomId: projectId,
+  ownerId: userId,
+  ownerName: useAuthStore.getState().currentUser?.username || 'admin',
+  isCoEditing: false,
   guideTitle: '',
   guideSubtitle: '',
   guideSummary: '',
@@ -810,6 +813,9 @@ function normalizeGuideData(
     // 優先引用會員「⚙️ 設定」中的全域 Firebase 網址
     firebaseDbUrl: globalFbUrl || raw.firebaseDbUrl || '',
     firebaseRoomId: raw.firebaseRoomId || projectId,
+    ownerId: raw.ownerId || base.ownerId,
+    ownerName: raw.ownerName || base.ownerName,
+    isCoEditing: Boolean(raw.isCoEditing),
     hotels:
       raw.hotels && raw.hotels.length > 0
         ? raw.hotels.map((h) => ({ ...h, id: h.id || uid() }))
@@ -1131,9 +1137,26 @@ export const useGuideStore = create<GuideState>()((set, get) => {
     const username = useAuthStore.getState().currentUser?.username || 'guest';
     const globalFbUrl = getGlobalFirebaseUrlForUser(userId);
 
+    const currentProjects = [...s.projects];
+    const existingIdx = currentProjects.findIndex((p) => p.id === pid);
+    const existingMeta = existingIdx !== -1 ? currentProjects[existingIdx] : undefined;
+
+    const resolvedOwnerId = existingMeta?.isSharedWithMe
+      ? existingMeta.ownerId || s.ownerId || 'shared_owner'
+      : s.ownerId || existingMeta?.ownerId || userId;
+    const resolvedOwnerName = existingMeta?.isSharedWithMe
+      ? existingMeta.ownerName || s.ownerName || '旅伴'
+      : s.ownerName || existingMeta?.ownerName || username;
+    const resolvedIsCoEditing = Boolean(
+      s.isCoEditing || existingMeta?.isCoEditing || existingMeta?.isSharedWithMe
+    );
+
     const snapshot: TravelGuideData = {
       firebaseDbUrl: globalFbUrl || s.firebaseDbUrl,
       firebaseRoomId: s.firebaseRoomId || pid,
+      ownerId: resolvedOwnerId,
+      ownerName: resolvedOwnerName,
+      isCoEditing: resolvedIsCoEditing,
       guideTitle: s.guideTitle,
       guideSubtitle: s.guideSubtitle,
       guideSummary: s.guideSummary,
@@ -1194,8 +1217,6 @@ export const useGuideStore = create<GuideState>()((set, get) => {
       (s.coverUrl || '').trim() ||
       'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=600&q=80';
 
-    const currentProjects = [...s.projects];
-    const existingIdx = currentProjects.findIndex((p) => p.id === pid);
     const updatedMeta: ProjectMeta = {
       id: pid,
       title: cleanTitle,
@@ -1203,6 +1224,11 @@ export const useGuideStore = create<GuideState>()((set, get) => {
       endDate: inferredEnd,
       cover: cleanCover,
       updatedAt: new Date().toISOString(),
+      ownerId: resolvedOwnerId,
+      ownerName: resolvedOwnerName,
+      isCoEditing: resolvedIsCoEditing,
+      isSharedWithMe: Boolean(existingMeta?.isSharedWithMe),
+      roomId: s.firebaseRoomId || existingMeta?.roomId || pid,
     };
 
     if (existingIdx !== -1) {
@@ -1337,6 +1363,12 @@ export const useGuideStore = create<GuideState>()((set, get) => {
         if (!loadedData.startDate) loadedData.startDate = projectMeta.startDate;
         if (!loadedData.endDate) loadedData.endDate = projectMeta.endDate;
         if (!loadedData.coverUrl) loadedData.coverUrl = projectMeta.cover;
+        if (projectMeta.ownerId) loadedData.ownerId = projectMeta.ownerId;
+        if (projectMeta.ownerName) loadedData.ownerName = projectMeta.ownerName;
+        if (projectMeta.isCoEditing || projectMeta.isSharedWithMe) {
+          loadedData.isCoEditing = true;
+        }
+        if (projectMeta.roomId) loadedData.firebaseRoomId = projectMeta.roomId;
       }
 
       loadedData.firebaseDbUrl = getGlobalFirebaseUrlForUser(userId);
@@ -1376,6 +1408,12 @@ export const useGuideStore = create<GuideState>()((set, get) => {
         if (!loadedData.startDate) loadedData.startDate = projectMeta.startDate;
         if (!loadedData.endDate) loadedData.endDate = projectMeta.endDate;
         if (!loadedData.coverUrl) loadedData.coverUrl = projectMeta.cover;
+        if (projectMeta.ownerId) loadedData.ownerId = projectMeta.ownerId;
+        if (projectMeta.ownerName) loadedData.ownerName = projectMeta.ownerName;
+        if (projectMeta.isCoEditing || projectMeta.isSharedWithMe) {
+          loadedData.isCoEditing = true;
+        }
+        if (projectMeta.roomId) loadedData.firebaseRoomId = projectMeta.roomId;
       }
 
       loadedData.firebaseDbUrl = getGlobalFirebaseUrlForUser(userId);
@@ -1485,20 +1523,32 @@ export const useGuideStore = create<GuideState>()((set, get) => {
       const legacyGuideEndpoint = `${base}guides/${encodeURIComponent(cleanRoom)}.json`;
 
       let cloudGuide: Partial<TravelGuideData> | null = null;
+      let cloudUpdatedBy = '';
       try {
         const res = await fetch(sharedEndpoint);
         if (res.ok) {
           const data = await res.json();
-          if (data?.state) cloudGuide = data.state;
+          if (data?.state) {
+            cloudGuide = data.state;
+            cloudUpdatedBy = data.updatedBy || '';
+          }
         }
         if (!cloudGuide) {
           const resLegacy = await fetch(legacyGuideEndpoint);
           if (resLegacy.ok) {
             const dataLegacy = await resLegacy.json();
-            if (dataLegacy?.state) cloudGuide = dataLegacy.state;
+            if (dataLegacy?.state) {
+              cloudGuide = dataLegacy.state;
+              cloudUpdatedBy = dataLegacy.updatedBy || '';
+            }
           }
         }
       } catch {}
+
+      const currentList = get().projects;
+      const existingMeta = currentList.find(
+        (p) => p.id === cleanRoom || p.roomId === cleanRoom
+      );
 
       let loadedData: TravelGuideData;
       if (cloudGuide) {
@@ -1520,6 +1570,19 @@ export const useGuideStore = create<GuideState>()((set, get) => {
         loadedData.firebaseRoomId = cleanRoom;
       }
 
+      const cloudOwnerId = cloudGuide?.ownerId;
+      const cloudOwnerName = cloudGuide?.ownerName || cloudUpdatedBy || '主揪';
+
+      // 判定當前登入者是否為該共編房間的原始主人（Owner）
+      const isOwner =
+        !asGuest &&
+        ((cloudOwnerId && cloudOwnerId === userId) ||
+          (!cloudOwnerId && existingMeta && !existingMeta.isSharedWithMe));
+
+      loadedData.isCoEditing = true;
+      loadedData.ownerId = isOwner ? userId : cloudOwnerId || 'shared_owner';
+      loadedData.ownerName = isOwner ? username : cloudOwnerName;
+
       // 絕不暴露底層 Firebase 網址給訪客或一般會員
       loadedData.firebaseDbUrl = getGlobalFirebaseUrlForUser(userId);
 
@@ -1540,7 +1603,7 @@ export const useGuideStore = create<GuideState>()((set, get) => {
       // 會員／註冊帳號模式：將這一個特定的共編專案加入該會員自己的大廳卡片清單，並直接打開雙欄編輯器
       const today = new Date().toISOString().split('T')[0];
       const newMeta: ProjectMeta = {
-        id: cleanRoom,
+        id: existingMeta ? existingMeta.id : cleanRoom,
         title: (loadedData.guideTitle || '').trim() || `共編旅程 (${cleanRoom})`,
         startDate: loadedData.startDate || today,
         endDate: loadedData.endDate || loadedData.startDate || today,
@@ -1548,10 +1611,15 @@ export const useGuideStore = create<GuideState>()((set, get) => {
           loadedData.coverUrl ||
           'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=600&q=80',
         updatedAt: new Date().toISOString(),
+        ownerId: loadedData.ownerId,
+        ownerName: loadedData.ownerName,
+        isCoEditing: true,
+        isSharedWithMe: !isOwner,
+        roomId: cleanRoom,
       };
 
-      const currentList = get().projects;
-      const existingIdx = currentList.findIndex((p) => p.id === cleanRoom);
+      const targetProjectId = newMeta.id;
+      const existingIdx = currentList.findIndex((p) => p.id === targetProjectId);
       let nextProjects: ProjectMeta[];
       if (existingIdx !== -1) {
         nextProjects = currentList.map((p, idx) =>
@@ -1562,12 +1630,12 @@ export const useGuideStore = create<GuideState>()((set, get) => {
       }
 
       safeSetStorage(getHubKeyForUser(userId), JSON.stringify(nextProjects));
-      safeSetStorage(getGuideKeyForUser(userId, cleanRoom), JSON.stringify(loadedData));
+      safeSetStorage(getGuideKeyForUser(userId, targetProjectId), JSON.stringify(loadedData));
       scheduleAutoPushHubToFirebase(userId, username, nextProjects, false);
 
       set({
         ...loadedData,
-        currentProjectId: cleanRoom,
+        currentProjectId: targetProjectId,
         projects: nextProjects,
         activeView: 'generator',
         showInlinePreview: false,
@@ -1593,6 +1661,11 @@ export const useGuideStore = create<GuideState>()((set, get) => {
         cover:
           'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=600&q=80',
         updatedAt: new Date().toISOString(),
+        ownerId: userId,
+        ownerName: username,
+        isCoEditing: false,
+        isSharedWithMe: false,
+        roomId: newId,
       };
 
       const rawNextProjects = [newMeta, ...get().projects];
@@ -2238,7 +2311,15 @@ export const useGuideStore = create<GuideState>()((set, get) => {
 
     importFromJSON: (data) =>
       applyAndPersist((state) => {
+        const currentMeta = state.projects.find((p) => p.id === state.currentProjectId);
         const normalized = normalizeGuideData(data, state.currentProjectId || 'default_trip');
+        // 若目前為受邀共編的他人專案，保留原始擁有者與共編狀態以及被鎖定的房間 ID
+        if (currentMeta?.isSharedWithMe) {
+          normalized.ownerId = currentMeta.ownerId || data.ownerId || state.ownerId;
+          normalized.ownerName = currentMeta.ownerName || data.ownerName || state.ownerName;
+          normalized.isCoEditing = true;
+          normalized.firebaseRoomId = state.firebaseRoomId || currentMeta.roomId || normalized.firebaseRoomId;
+        }
         return { ...normalized };
       }),
 
@@ -2259,6 +2340,9 @@ export const useGuideStore = create<GuideState>()((set, get) => {
       return {
         firebaseDbUrl: globalFbUrl || s.firebaseDbUrl,
         firebaseRoomId: s.firebaseRoomId || s.currentProjectId || 'default_trip',
+        ownerId: s.ownerId || userId,
+        ownerName: s.ownerName || useAuthStore.getState().currentUser?.username || 'admin',
+        isCoEditing: Boolean(s.isCoEditing),
         guideTitle: s.guideTitle,
         guideSubtitle: s.guideSubtitle,
         guideSummary: s.guideSummary,

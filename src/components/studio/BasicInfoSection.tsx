@@ -70,7 +70,7 @@ export const BasicInfoSection: React.FC = () => {
         />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mb-2.5 items-start">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-2.5 items-start">
         <div>
           <label className="block text-[12.5px] font-bold mb-1 text-slate-600">
             出發日期（自動連動去程航班）：
@@ -79,7 +79,7 @@ export const BasicInfoSection: React.FC = () => {
             type="text"
             readOnly
             value={startDate ? startDate.replace(/-/g, '/') : '請於下方去程航班選擇日期'}
-            title="此欄位為唯讀，自動串聯下方「1. 航班時間資訊 - 去程航班」的日期"
+            title="此欄位為唯讀，自動串聯下方「2. 航班時間資訊 - 去程航班」的日期"
             className="w-full px-2.5 py-2 border border-slate-200 rounded-md text-sm bg-slate-100 text-slate-600 font-medium cursor-not-allowed select-none"
           />
         </div>
@@ -91,76 +91,77 @@ export const BasicInfoSection: React.FC = () => {
             type="text"
             readOnly
             value={endDate ? endDate.replace(/-/g, '/') : '請於下方回程航班選擇日期'}
-            title="此欄位為唯讀，自動串聯下方「1. 航班時間資訊 - 回程航班」的日期"
+            title="此欄位為唯讀，自動串聯下方「2. 航班時間資訊 - 回程航班」的日期"
             className="w-full px-2.5 py-2 border border-slate-200 rounded-md text-sm bg-slate-100 text-slate-600 font-medium cursor-not-allowed select-none"
           />
         </div>
-        <div>
-          <label className="block text-[12.5px] font-bold mb-1 text-slate-600">
-            大廳卡片封面圖片（網址或本機上傳）：
-          </label>
-          <div className="flex items-center gap-1.5">
-            <input
-              type="text"
-              placeholder="貼上圖片網址，或點右側上傳本機照片..."
-              value={isDataUrl ? '（已內嵌本機上傳照片，自動同步雲端與JSON）' : coverUrl}
-              readOnly={isDataUrl}
-              onChange={(e) => updateField('coverUrl', e.target.value)}
-              className={`flex-1 min-w-0 px-2.5 py-2 border border-slate-300 rounded-md text-sm focus:border-blue-600 focus:outline-none ${
-                isDataUrl ? 'bg-emerald-50 text-emerald-800 font-semibold' : 'bg-white'
-              }`}
-            />
-            <input
-              ref={coverFileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleUploadLocalCover}
-            />
+      </div>
+
+      <div className="mb-2.5">
+        <label className="block text-[12.5px] font-bold mb-1 text-slate-600">
+          大廳卡片封面圖片（網址或本機上傳）：
+        </label>
+        <div className="flex items-center gap-1.5">
+          <input
+            type="text"
+            placeholder="貼上圖片網址，或點右側上傳本機照片..."
+            value={isDataUrl ? '（已內嵌本機上傳照片，自動同步雲端與JSON）' : coverUrl}
+            readOnly={isDataUrl}
+            onChange={(e) => updateField('coverUrl', e.target.value)}
+            className={`flex-1 min-w-0 px-2.5 py-2 border border-slate-300 rounded-md text-sm focus:border-blue-600 focus:outline-none ${
+              isDataUrl ? 'bg-emerald-50 text-emerald-800 font-semibold' : 'bg-white'
+            }`}
+          />
+          <input
+            ref={coverFileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleUploadLocalCover}
+          />
+          <button
+            type="button"
+            disabled={isUploadingCover}
+            onClick={() => coverFileInputRef.current?.click()}
+            title="從電腦或手機上傳照片（自動壓縮並存入 JSON 與 Firebase 雲端）"
+            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-2.5 py-2 rounded-md text-xs font-bold cursor-pointer whitespace-nowrap shrink-0"
+          >
+            {isUploadingCover ? '處理中...' : '📁 上傳照片'}
+          </button>
+          {trimmedCoverUrl && (
             <button
               type="button"
-              disabled={isUploadingCover}
-              onClick={() => coverFileInputRef.current?.click()}
-              title="從電腦或手機上傳照片（自動壓縮並存入 JSON 與 Firebase 雲端）"
-              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-2.5 py-2 rounded-md text-xs font-bold cursor-pointer whitespace-nowrap shrink-0"
+              onClick={() => updateField('coverUrl', '')}
+              title="清除自訂封面，恢復預設封面"
+              className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-2 py-2 rounded-md text-xs font-bold cursor-pointer shrink-0"
             >
-              {isUploadingCover ? '處理中...' : '📁 上傳照片'}
+              ✕
             </button>
-            {trimmedCoverUrl && (
-              <button
-                type="button"
-                onClick={() => updateField('coverUrl', '')}
-                title="清除自訂封面，恢復預設封面"
-                className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-2 py-2 rounded-md text-xs font-bold cursor-pointer shrink-0"
-              >
-                ✕
-              </button>
-            )}
-          </div>
-          {trimmedCoverUrl && (
-            <div className="mt-2 rounded-lg overflow-hidden border border-slate-200 bg-slate-50 shadow-2xs">
-              <div className="text-[11px] font-semibold text-slate-500 px-2.5 py-1 bg-slate-100 border-b border-slate-200 flex items-center justify-between">
-                <span>🖼️ 封面圖片即時預覽</span>
-                {isDataUrl && (
-                  <span className="text-[10px] text-emerald-700 font-bold">
-                    ✓ 已轉為雲端跨瀏覽器相容格式
-                  </span>
-                )}
-              </div>
-              <img
-                src={trimmedCoverUrl}
-                alt="大廳卡片封面預覽"
-                className="w-full h-28 object-cover block"
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).style.display = 'none';
-                }}
-                onLoad={(e) => {
-                  (e.currentTarget as HTMLImageElement).style.display = 'block';
-                }}
-              />
-            </div>
           )}
         </div>
+        {trimmedCoverUrl && (
+          <div className="mt-2 rounded-lg overflow-hidden border border-slate-200 bg-slate-50 shadow-2xs">
+            <div className="text-[11px] font-semibold text-slate-500 px-2.5 py-1 bg-slate-100 border-b border-slate-200 flex items-center justify-between">
+              <span>🖼️ 封面圖片即時預覽</span>
+              {isDataUrl && (
+                <span className="text-[10px] text-emerald-700 font-bold">
+                  ✓ 已轉為雲端跨瀏覽器相容格式
+                </span>
+              )}
+            </div>
+            <img
+              src={trimmedCoverUrl}
+              alt="大廳卡片封面預覽"
+              className="w-full h-28 object-cover block"
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = 'none';
+              }}
+              onLoad={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = 'block';
+              }}
+            />
+          </div>
+        )}
       </div>
 
       <div>

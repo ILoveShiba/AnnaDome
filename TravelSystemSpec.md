@@ -133,13 +133,20 @@ d:\AnnaDome\
 2. **三大範例專案保留與 `(範例)` 標示**（[useGuideStore.ts](file:///d:/AnnaDome/src/store/useGuideStore.ts)）：
    * 內建 `(範例) 東京 5 日風格隨身手冊`、`(範例) 北海道秋日散策`、`(範例) 胡志明市城市漫遊`，統一於標題前方加上 `(範例)` 前綴，並取消新增自建專案時自動清除範例專案之行為。
 
-### 4.2 單一專案「🔗 複製此專案共編連結」與 `/shared_rooms/` 旅伴／訪客共編系統
-1. **單一特定專案共編分享**（[CloudConfigSection.tsx](file:///d:/AnnaDome/src/components/studio/CloudConfigSection.tsx)、[useCloudSync.ts](file:///d:/AnnaDome/src/hooks/useCloudSync.ts)）：
-   * 共編功能僅設定於單一特定旅行專案內，只提供 **「`🔗 複製此專案共編連結`」** 單一按鈕（格式：`?room=<房間ID>`），點擊時自動將該專案推播至 `/shared_rooms/<房間ID>.json` 並複製連結。
-   * **雲端空間瘦身保護**：非 `admin` 帳號於公共 `/shared_rooms/` 共編時，自動過濾大型 Base64 圖片改用輕量封面網址，單一共編房間僅占約 `4KB`。
-2. **共編者三選一進入模式（含訪客模式）**（[LoginView.tsx](file:///d:/AnnaDome/src/components/auth/LoginView.tsx)、[HeaderBar.tsx](file:///d:/AnnaDome/src/components/studio/HeaderBar.tsx)）：
-   * **👋 訪客共編（只需設定名稱）**：免密碼，輸入訪客名稱後直接開啟該單一受邀專案進入雙欄編輯器，不進入大廳亦無法檢視其他專案。
-   * **🔐 帳號登入 / ✨ 註冊帳號**：登入或註冊後自動將該單一共編專案掛載進個人大廳並直接進入編輯器。
+### 4.2 單一專案「🔗 複製共編連結」、`/shared_rooms/` 共編系統與房間權限／大廳分區控管
+1. **預設隱藏共編資訊與頂部「🤝 開啟共同編輯」按鈕**（[HeaderBar.tsx](file:///d:/AnnaDome/src/components/studio/HeaderBar.tsx)、[CloudConfigSection.tsx](file:///d:/AnnaDome/src/components/studio/CloudConfigSection.tsx)）：
+   * 尚未進行共編的專案（`isCoEditing !== true`），在點擊「✏️ 編輯行程」進入產生器時預設隱藏共編設定區塊。
+   * 在頂部標頭 **【`👁️ 即時預覽`】** 左側新增 **【`🤝 開啟共同編輯`】** 按鈕，點擊後才開啟共編設定區塊（已開啟時按鈕切換顯示為 **【`👥 共同編輯開啟中`】**）。
+2. **共編設定介面文案精簡與房間 ID 唯讀權限鎖定**（[CloudConfigSection.tsx](file:///d:/AnnaDome/src/components/studio/CloudConfigSection.tsx)）：
+   * 標題改為 **【`共編設定`】**、分享按鈕改為 **【`🔗 複製共編連結`】**、欄位標籤改為 **【`共編房間 ID（英文或數字代碼）：`】**。
+   * **共編房間 ID 權限鎖定**：僅共編房間的原始主人（Owner）可編輯「共編房間 ID」；透過登入、註冊或訪客方式進入共編房間的旅伴，該欄位一律鎖定為唯讀（`readOnly`）並顯示 `🔒 唯讀（僅房間主人可修改）`。
+3. **專案大廳區分「個人專案」與「他人共編專案」，主人端呈現【共編中】提醒小視窗**（[ProjectHubView.tsx](file:///d:/AnnaDome/src/components/hub/ProjectHubView.tsx)）：
+   * **受邀共編者端大廳**：在「🧳 籌備與進行中專案」下方獨立出 **「`🤝 受邀參與的他人共編專案`」** 區塊，並於卡片上醒目標示藍紫色 **「`👤 擁有者：${project.ownerName}`」** 提醒標籤，清楚區分他人擁有的共編專案與個人自建專案。
+   * **共編房間主人端大廳**：已開啟共編的個人專案卡片上，自動呈現翠綠色 **「`【共編中】旅伴共同編輯已開啟（ID: ...）`」** 提醒小視窗。
+4. **手冊編輯區「大廳卡片封面圖片（網址或本機上傳）：」移至下一行**（[BasicInfoSection.tsx](file:///d:/AnnaDome/src/components/studio/BasicInfoSection.tsx)）：
+   * 於 `🌟 0. 旅遊手冊命名與副標題` 中，「出發日期」與「結束日期」並排為同一列（2 欄），並將 **「`大廳卡片封面圖片（網址或本機上傳）：`」** 往下一行獨立成完整寬度的一列。
+5. **共編者三選一進入模式與雲端空間瘦身保護**（[LoginView.tsx](file:///d:/AnnaDome/src/components/auth/LoginView.tsx)、[useCloudSync.ts](file:///d:/AnnaDome/src/hooks/useCloudSync.ts)）：
+   * 受邀者點開 `?room=<房間ID>` 連結可選擇 **「👋 訪客共編（只需設定名稱）」**、**「🔐 帳號登入」** 或 **「✨ 註冊帳號」**；非 `admin` 帳號於公共 `/shared_rooms/` 共編時自動剔除大型 Base64 圖片，單一共編房間僅占約 `4KB`。
 
 ### 4.3 本機資料夾防注音重複生檔、「🗑️ 刪除」切換模式與 10 天刪除暫存區
 1. **防注音半成品檔名與同 ID 舊檔清理**（[localFolderSync.ts](file:///d:/AnnaDome/src/services/localFolderSync.ts)）：

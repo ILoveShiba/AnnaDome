@@ -20,11 +20,17 @@ export const useCloudSync = (localBuildTime: string) => {
   const currentProjectId = useGuideStore((s) => s.currentProjectId);
   const firebaseDbUrl = useGuideStore((s) => s.firebaseDbUrl);
   const firebaseRoomId = useGuideStore((s) => s.firebaseRoomId);
+  const isCoEditing = useGuideStore((s) => s.isCoEditing);
+  const projects = useGuideStore((s) => s.projects);
   const buildTime = useGuideStore((s) => s.buildTime);
   const importFromJSON = useGuideStore((s) => s.importFromJSON);
   const getSnapshot = useGuideStore((s) => s.getSnapshot);
 
   const currentUser = useAuthStore((s) => s.currentUser);
+  const currentProjectMeta = projects.find((p) => p.id === currentProjectId);
+  const isCoEditActive = Boolean(
+    isCoEditing || currentProjectMeta?.isCoEditing || currentProjectMeta?.isSharedWithMe || currentUser?.role === 'guest'
+  );
 
   const [status, setStatus] = useState<SyncStatus>('idle');
   const [lastSyncedAt, setLastSyncedAt] = useState<string>('');
@@ -61,6 +67,9 @@ export const useCloudSync = (localBuildTime: string) => {
         ...currentState,
         firebaseDbUrl: '', // 絕不在共編封包中暴露任何人的 Firebase 網址
         coverUrl: safeCoverUrl,
+        isCoEditing: true,
+        ownerId: currentState.ownerId || currentUser?.userId || 'u_admin',
+        ownerName: currentState.ownerName || currentUser?.username || '主揪',
       };
 
       const nowIso = new Date().toISOString();
@@ -148,16 +157,16 @@ export const useCloudSync = (localBuildTime: string) => {
     [getEndpoint, importFromJSON, buildTime, localBuildTime, pushToCloud]
   );
 
-  // 初次進入產生器或切換房間時拉取最新共編狀態
+  // 初次進入產生器或切換房間時，僅在「已開啟共同編輯」的專案拉取最新共編狀態
   useEffect(() => {
-    if (activeView === 'generator' && currentProjectId) {
+    if (activeView === 'generator' && currentProjectId && isCoEditActive) {
       syncWithCloud(false);
     }
-  }, [activeView, currentProjectId, firebaseRoomId]);
+  }, [activeView, currentProjectId, firebaseRoomId, isCoEditActive]);
 
-  // 當本地編輯內容變更時，防抖 1.5 秒自動推播至 /shared_rooms/ 共編房間
+  // 當本地編輯內容變更且已開啟共同編輯時，防抖 1.5 秒自動推播至 /shared_rooms/ 共編房間
   useEffect(() => {
-    if (activeView !== 'generator' || !currentProjectId || !buildTime) return;
+    if (activeView !== 'generator' || !currentProjectId || !buildTime || !isCoEditActive) return;
     if (isApplyingCloudRef.current) return;
     if (buildTime === lastPushedBuildTimeRef.current) return;
 
@@ -166,11 +175,11 @@ export const useCloudSync = (localBuildTime: string) => {
     }, 1500);
 
     return () => window.clearTimeout(timer);
-  }, [buildTime, activeView, currentProjectId, pushToCloud]);
+  }, [buildTime, activeView, currentProjectId, isCoEditActive, pushToCloud]);
 
-  // 視窗重新獲得焦點或每 15 秒背景輪詢檢查旅伴是否有新修改
+  // 視窗重新獲得焦點或每 15 秒背景輪詢檢查旅伴是否有新修改（僅限已開啟共編的專案）
   useEffect(() => {
-    if (activeView !== 'generator' || !currentProjectId) return;
+    if (activeView !== 'generator' || !currentProjectId || !isCoEditActive) return;
     const onFocus = () => syncWithCloud(true);
     window.addEventListener('focus', onFocus);
     const interval = window.setInterval(() => {
@@ -182,7 +191,7 @@ export const useCloudSync = (localBuildTime: string) => {
       window.removeEventListener('focus', onFocus);
       window.clearInterval(interval);
     };
-  }, [activeView, currentProjectId, syncWithCloud]);
+  }, [activeView, currentProjectId, isCoEditActive, syncWithCloud]);
 
   return {
     status,

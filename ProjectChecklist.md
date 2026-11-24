@@ -96,9 +96,14 @@
 - [x] **正在旅行期間之專案自動顯示「`✈️ 旅行中`」狀態標籤** ([ProjectHubView.tsx](file:///d:/AnnaDome/src/components/hub/ProjectHubView.tsx))：
     - [x] 以本機當地時區日期 (`TODAY`) 自動判斷，當專案的 `出發日期 <= TODAY <= 結束日期` 時，大廳卡片右上角自動由「籌備中」切換為翠綠色 **`✈️ 旅行中`** 標籤
 
-- [x] **單一專案「🔗 複製此專案共編連結」與 `/shared_rooms/` 旅伴／訪客共編系統** ([CloudConfigSection.tsx](file:///d:/AnnaDome/src/components/studio/CloudConfigSection.tsx)、[useCloudSync.ts](file:///d:/AnnaDome/src/hooks/useCloudSync.ts)、[LoginView.tsx](file:///d:/AnnaDome/src/components/auth/LoginView.tsx)、[useGuideStore.ts](file:///d:/AnnaDome/src/store/useGuideStore.ts))：
-    - [x] 於單一特定專案編輯器內僅提供 **「`🔗 複製此專案共編連結`」** 單一分享按鈕（如 `?room=<房間ID>`），點擊自動將該專案推播至 `/shared_rooms/<房間ID>.json` 並複製專屬共編網址
-    - [x] 共編者點開連結後可選擇 **「👋 訪客共編（只需設定名稱，直接進入該單一專案編輯，不進入大廳亦看不到其他專案）」**、**「🔐 帳號登入」** 或 **「✨ 註冊帳號」**（會員登入／註冊後自動將該單一共編專案掛載進個人大廳並進入共編）
+- [x] **單一專案「🔗 複製共編連結」與 `/shared_rooms/` 旅伴／訪客共編系統及共編房間權限控管** ([CloudConfigSection.tsx](file:///d:/AnnaDome/src/components/studio/CloudConfigSection.tsx)、[HeaderBar.tsx](file:///d:/AnnaDome/src/components/studio/HeaderBar.tsx)、[ProjectHubView.tsx](file:///d:/AnnaDome/src/components/hub/ProjectHubView.tsx)、[BasicInfoSection.tsx](file:///d:/AnnaDome/src/components/studio/BasicInfoSection.tsx)、[useCloudSync.ts](file:///d:/AnnaDome/src/hooks/useCloudSync.ts)、[LoginView.tsx](file:///d:/AnnaDome/src/components/auth/LoginView.tsx)、[useGuideStore.ts](file:///d:/AnnaDome/src/store/useGuideStore.ts))：
+    - [x] **尚未開啟共編之專案預設隱藏共編設定，頂部新增「🤝 開啟共同編輯」按鈕**：點擊編輯行程進入尚未進行共編的專案時，預設先隱藏共編設定區塊；並於頂部標頭「👁️ 即時預覽」按鈕左側新增 **「`🤝 開啟共同編輯`」** 按鈕，點擊後才開啟並展開「共編設定」區塊
+    - [x] **共編設定文字精簡化**：區塊標題改為 **「`共編設定`」**、分享按鈕改為 **「`🔗 複製共編連結`」**、欄位標籤改為 **「`共編房間 ID（英文或數字代碼）：`」**
+    - [x] **共編房間 ID 權限鎖定（非房間主人設為唯讀 `readOnly`）**：僅共編房間的原始建立者（主人）有權限修改「共編房間 ID」；受邀共編者（不論透過帳號登入、註冊帳號或訪客模式進入共編房間）該欄位強制鎖定為唯讀 (`readOnly`) 並標示「`🔒 唯讀（僅房間主人可修改）`」
+    - [x] **大廳區分「個人專案」與「🤝 受邀參與的他人共編專案」，主人端大廳卡片顯示【共編中】提醒小視窗**：
+        - [x] 受邀共編者以帳號登入後，於大廳「🧳 籌備與進行中專案」下方獨立出 **「`🤝 受邀參與的他人共編專案`」** 專屬區塊，並於卡片標示藍紫色 **「`👤 擁有者：${project.ownerName}`」** 提醒標籤
+        - [x] 在共編專案主人端的大廳卡片內，自動呈現翠綠色 **「`【共編中】旅伴共同編輯已開啟（ID: ...）`」** 提醒小視窗
+    - [x] **手冊編輯區「大廳卡片封面圖片（網址或本機上傳）：」獨立移至下一行**：於 `🌟 0. 旅遊手冊命名與副標題` 中，將「出發日期」與「結束日期」並排為同一列，「大廳卡片封面圖片（網址或本機上傳）：」獨立往下移至新的一整行
     - [x] 底層 Firebase 網址對一般會員與訪客完全隱藏（新會員仍可於「⚙️ 設定」自訂自己的 Firebase），並具備雲端空間自動瘦身保護（非 `admin` 帳號於 `/shared_rooms/` 共編時自動剔除大型 Base64 圖片，每間共編房僅約 4KB）
 
 </details>

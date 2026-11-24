@@ -130,7 +130,7 @@ export const App: React.FC = () => {
         style={{ display: activeView === 'generator' ? 'block' : 'none' }}
         className="pb-16"
       >
-        <HeaderBar lastSavedAt={lastSavedAt} />
+        <HeaderBar lastSavedAt={lastSavedAt} onEnableCoEditing={pushToCloud} />
 
         <main id="app-main" className="mx-auto px-3 max-w-7xl">
           <div

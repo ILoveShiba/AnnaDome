@@ -26,6 +26,10 @@ export const CloudConfigSection: React.FC<CloudConfigSectionProps> = ({
 }) => {
   const firebaseRoomId = useGuideStore((s) => s.firebaseRoomId);
   const currentProjectId = useGuideStore((s) => s.currentProjectId);
+  const ownerId = useGuideStore((s) => s.ownerId);
+  const ownerName = useGuideStore((s) => s.ownerName);
+  const isCoEditing = useGuideStore((s) => s.isCoEditing);
+  const projects = useGuideStore((s) => s.projects);
   const updateField = useGuideStore((s) => s.updateField);
 
   const currentUser = useAuthStore((s) => s.currentUser);
@@ -35,6 +39,20 @@ export const CloudConfigSection: React.FC<CloudConfigSectionProps> = ({
   const [copiedToast, setCopiedToast] = useState(false);
 
   const isGuest = currentUser?.role === 'guest';
+  const currentProjectMeta = projects.find((p) => p.id === currentProjectId);
+  const isSharedWithMe = Boolean(currentProjectMeta?.isSharedWithMe);
+
+  // 只有此專案的建立者（主人）才有權限修改共編房間 ID；受邀登入的共編會員或訪客一律唯讀
+  const isProjectOwner =
+    !isGuest &&
+    !isSharedWithMe &&
+    (!ownerId || ownerId === currentUser?.userId);
+
+  // 尚未開啟共同編輯且非受邀共編專案時，預設隱藏共編設定區塊
+  if (!isCoEditing && !isSharedWithMe && !isGuest) {
+    return null;
+  }
+
   const effectiveRoomId = (firebaseRoomId || currentProjectId || 'trip_room').trim();
 
   const handleCopyShareLink = async () => {
@@ -63,8 +81,15 @@ export const CloudConfigSection: React.FC<CloudConfigSectionProps> = ({
   return (
     <section className="bg-[#ebf8ff] border-2 border-[#3182ce] rounded-lg p-3 mb-3 shadow-2xs">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
-        <div className="text-[15px] font-bold text-[#2b6cb0] border-l-4 border-[#3182ce] pl-2">
-          🤝 單一專案旅伴共編設定
+        <div className="flex items-center gap-2">
+          <div className="text-[15px] font-bold text-[#2b6cb0] border-l-4 border-[#3182ce] pl-2">
+            共編設定
+          </div>
+          {!isProjectOwner && (
+            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
+              👤 專案擁有者：{ownerName || currentProjectMeta?.ownerName || '主揪'}（共編房間 ID 唯讀）
+            </span>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
@@ -74,9 +99,7 @@ export const CloudConfigSection: React.FC<CloudConfigSectionProps> = ({
             className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white cursor-pointer shadow-xs transition-colors"
           >
             <span>
-              {copiedToast
-                ? '✅ 已複製此專案共編連結！可貼給旅伴'
-                : '🔗 複製此專案共編連結'}
+              {copiedToast ? '✅ 已複製共編連結！' : '🔗 複製共編連結'}
             </span>
           </button>
 
@@ -94,17 +117,27 @@ export const CloudConfigSection: React.FC<CloudConfigSectionProps> = ({
 
       <div>
         <label className="block text-[12.5px] font-bold mb-1 text-slate-600">
-          此專案專屬共編房間 ID（可自訂英文或數字代碼，僅限擁有此專案共編連結的旅伴共同編輯）：
+          共編房間 ID（英文或數字代碼）：
         </label>
         <input
           type="text"
           id="firebaseRoomId"
-          readOnly={isGuest}
+          readOnly={!isProjectOwner}
+          title={
+            isProjectOwner
+              ? '您是此專案的主人，可自訂共編房間 ID'
+              : '只有此共編房間的主人才有權限更改共編 ID（目前為唯讀）'
+          }
           placeholder="例：coast-2026"
           value={firebaseRoomId}
-          onChange={(e) => updateField('firebaseRoomId', e.target.value)}
-          className={`w-full px-2.5 py-2 border border-slate-300 rounded-md text-sm ${
-            isGuest ? 'bg-slate-100 text-slate-600 cursor-not-allowed' : 'bg-white'
+          onChange={(e) => {
+            if (!isProjectOwner) return;
+            updateField('firebaseRoomId', e.target.value);
+          }}
+          className={`w-full px-2.5 py-2 border rounded-md text-sm ${
+            !isProjectOwner
+              ? 'bg-slate-100 border-slate-200 text-slate-600 font-medium cursor-not-allowed select-none'
+              : 'bg-white border-slate-300'
           }`}
         />
       </div>
