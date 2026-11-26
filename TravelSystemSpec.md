@@ -137,11 +137,12 @@ d:\AnnaDome\
 1. **預設隱藏共編資訊與頂部「🤝 開啟共同編輯」按鈕**（[HeaderBar.tsx](file:///d:/AnnaDome/src/components/studio/HeaderBar.tsx)、[CloudConfigSection.tsx](file:///d:/AnnaDome/src/components/studio/CloudConfigSection.tsx)）：
    * 尚未進行共編的專案（`isCoEditing !== true`），在點擊「✏️ 編輯行程」進入產生器時預設隱藏共編設定區塊。
    * 在頂部標頭 **【`👁️ 即時預覽`】** 左側新增 **【`🤝 開啟共同編輯`】** 按鈕，點擊後才開啟共編設定區塊（已開啟時按鈕切換顯示為 **【`👥 共同編輯開啟中`】**）。
-2. **共編設定介面文案精簡與房間 ID 唯讀權限鎖定**（[CloudConfigSection.tsx](file:///d:/AnnaDome/src/components/studio/CloudConfigSection.tsx)）：
+2. **共編設定介面文案精簡、短代碼編碼 (`trip` + 4 碼大寫英數) 與房間 ID 唯讀權限鎖定**（[CloudConfigSection.tsx](file:///d:/AnnaDome/src/components/studio/CloudConfigSection.tsx)、[useGuideStore.ts](file:///d:/AnnaDome/src/store/useGuideStore.ts)）：
    * 標題改為 **【`共編設定`】**、分享按鈕改為 **【`🔗 複製共編連結`】**、欄位標籤改為 **【`共編房間 ID（英文或數字代碼）：`】**。
+   * **短代碼編碼規則 (`generateShortTripCode`)**：採用 `trip` 固定開頭 ＋ 4 碼高辨識度大寫英數短代碼（字元集 `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`，剔除易混淆的 `0/O/1/I/L`，例如 `tripK8M3`）；建立新專案或舊長代碼專案點擊「🤝 開啟共同編輯」時自動轉換配發。
    * **共編房間 ID 權限鎖定**：僅共編房間的原始主人（Owner）可編輯「共編房間 ID」；透過登入、註冊或訪客方式進入共編房間的旅伴，該欄位一律鎖定為唯讀（`readOnly`）並顯示 `🔒 唯讀（僅房間主人可修改）`。
-3. **專案大廳區分「個人專案」與「他人共編專案」，主人端呈現【共編中】提醒小視窗**（[ProjectHubView.tsx](file:///d:/AnnaDome/src/components/hub/ProjectHubView.tsx)）：
-   * **受邀共編者端大廳**：在「🧳 籌備與進行中專案」下方獨立出 **「`🤝 受邀參與的他人共編專案`」** 區塊，並於卡片上醒目標示藍紫色 **「`👤 擁有者：${project.ownerName}`」** 提醒標籤，清楚區分他人擁有的共編專案與個人自建專案。
+3. **專案大廳區分「個人專案」與「🤝 共編專案」，主人端呈現【共編中】提醒小視窗，並精簡「🗑️ 刪除暫存區」標題**（[ProjectHubView.tsx](file:///d:/AnnaDome/src/components/hub/ProjectHubView.tsx)）：
+   * **受邀共編者端大廳**：在「🧳 籌備與進行中專案」下方獨立出 **「`🤝 共編專案`」** 區塊，並於卡片上醒目標示藍紫色 **「`👤 擁有者：${project.ownerName}`」** 提醒標籤；最下方刪除暫存區標題精簡為 **「`🗑️ 刪除暫存區`」**。
    * **共編房間主人端大廳**：已開啟共編的個人專案卡片上，自動呈現翠綠色 **「`【共編中】旅伴共同編輯已開啟（ID: ...）`」** 提醒小視窗。
 4. **手冊編輯區「大廳卡片封面圖片（網址或本機上傳）：」移至下一行**（[BasicInfoSection.tsx](file:///d:/AnnaDome/src/components/studio/BasicInfoSection.tsx)）：
    * 於 `🌟 0. 旅遊手冊命名與副標題` 中，「出發日期」與「結束日期」並排為同一列（2 欄），並將 **「`大廳卡片封面圖片（網址或本機上傳）：`」** 往下一行獨立成完整寬度的一列。
@@ -151,7 +152,23 @@ d:\AnnaDome\
    * **情境 A（主人移至刪除暫存區）**：當刪除者為該專案主人（`!project.isSharedWithMe`）且該專案曾開啟共編，立即向 Firebase `/shared_rooms/<roomId>.json` 寫入 `{ deletedByOwner: true, deletedAt, ownerId, ownerName }`。
    * **情境 B（主人從暫存區還原）**：主人點擊「↩️ 還原專案」時，自動將共編專案資料重新推播恢復至 `/shared_rooms/<roomId>.json`。
    * **情境 C（主人永久刪除／清空暫存區／10天到期）**：直接對 `/shared_rooms/<roomId>.json` 發送 `HTTP DELETE` 徹底清除雲端節點。
-   * **受邀共編者端自動同步移除**：受邀共編者於大廳（登入、返回大廳、視窗聚焦、每 15 秒背景巡檢 `pruneDeletedSharedProjectsForCollaborator`）或編輯器內同步時，一旦偵測到雲端房間為 `deletedByOwner === true` 或 `null`，立即自動從受邀者大廳的「🤝 受邀參與的他人共編專案」清單與本機快取中移除該專案（並禁止受邀者端將舊資料推回雲端）。
+   * **受邀共編者端自動同步移除**：受邀共編者於大廳（登入、返回大廳、視窗聚焦、每 15 秒背景巡檢 `pruneDeletedSharedProjectsForCollaborator`）或編輯器內同步時，一旦偵測到雲端房間為 `deletedByOwner === true` 或 `null`，立即自動從受邀者大廳的「🤝 共編專案」清單與本機快取中移除該專案（並禁止受邀者端將舊資料推回雲端）。
+
+### 4.5 版面精簡、左欄章節可折疊與 5 大 UX 體驗升級
+1. **大廳無共編專案時自動隱藏區塊**（[ProjectHubView.tsx](file:///d:/AnnaDome/src/components/hub/ProjectHubView.tsx)）：當 `sharedWithMeProjects.length === 0` 時自動隱藏「🤝 共編專案」區塊，減少空白虛線框。
+2. **頂部常駐列雙層瘦身與「⋯ 更多工具」收納選單**（[HeaderBar.tsx](file:///d:/AnnaDome/src/components/studio/HeaderBar.tsx)）：將自動儲存狀態移入第一層導覽列，並將「📥 資料備份 / 📤 資料匯入 / 🗑️ 清空本專案內容」收納入「`⋯ 更多工具`」下拉選單，釋放約 35% 頂部垂直高度。
+3. **左欄 `0 ~ 8` 章節全面支援點擊折疊／展開 ＋ 頂部「快速章節跳轉錨點列」**（[BasicInfoSection.tsx](file:///d:/AnnaDome/src/components/studio/BasicInfoSection.tsx) ~ [NoteManager.tsx](file:///d:/AnnaDome/src/components/studio/NoteManager.tsx) & [App.tsx](file:///d:/AnnaDome/src/App.tsx)）：左側表單所有章節皆支援點擊標題列收合／展開，並於左欄頂部常駐 `[🌟 0.基本] ~ [📝 8.備註]` 快速跳轉錨點列（附 `⇅ 展開/收合` 全章節開關），點擊任一膠囊自動展開該章節、平滑捲動至定位並同步對齊右側預覽。
+4. **大廳卡片顯示「天數標籤（如 `5天4夜`）」與「👥 旅伴」**（[ProjectHubView.tsx](file:///d:/AnnaDome/src/components/hub/ProjectHubView.tsx)、[useGuideStore.ts](file:///d:/AnnaDome/src/store/useGuideStore.ts)）：自動計算天數與夜數，並同步在卡片上呈現 `👥 旅伴` 名單。
+5. **手機／平板 RWD 懸浮快速切換膠囊與全系統文案精簡**（[App.tsx](file:///d:/AnnaDome/src/App.tsx)）：螢幕小於 `1024px` 時於右下角提供 `[✏️ 編輯表單 | 👁️ 手冊預覽]` 一鍵切換鈕，並全面精簡各表單欄位與彈窗的冗長括號說明。
+6. **專案主人專屬「👥 共編人清單（僅於編輯器內預設收合不占版面）」與共編者移除機制**（[CloudConfigSection.tsx](file:///d:/AnnaDome/src/components/studio/CloudConfigSection.tsx)、[useGuideStore.ts](file:///d:/AnnaDome/src/store/useGuideStore.ts)、[useCloudSync.ts](file:///d:/AnnaDome/src/hooks/useCloudSync.ts)）：
+   * **自動登記 (`upsertCollaboratorEntry`)**：受邀旅伴透過共編連結以「訪客共編」或「會員帳號」進入或編輯時，自動登記至 `collaborators`（含名稱、`👋 訪客 / 👤 會員` 標籤與最後活躍時間，自動去重且排除主人自己）。
+   * **編輯器內隱藏式收納設計**：僅在編輯器【共編設定】標題列旁提供 **`👥 共編人清單 (N) ▼`** 膠囊按鈕（大廳卡片維持單純的 `【共編中】 ID: ...` 提醒，不在大廳展開清單），平時完全收起不占版面，點擊才展開名單面板。
+   * **移除共編者 (`removeCollaboratorByOwner`)**：主人可在名單中點擊 **`✕ 移除`** 將特定共編人移出房間（被移除者下次同步時會自動從其大廳移除該專案或退出訪客模式）。
+7. **共編連結登入頁專屬標題（方案 C）、手冊編輯區行距收緊、封面建議尺寸提示與 GitHub Actions v4 升級**：
+   * **共編連結登入標題**（[LoginView.tsx](file:///d:/AnnaDome/src/components/auth/LoginView.tsx)）：當網址帶有 `?room=<房間ID>` 時，登入卡片標題自動顯示為 **`✈️ 旅伴行程共編室`**（一般登入則維持 `✈️ 旅遊手冊管理中心`）。
+   * **手冊編輯區 (`#studio-panel`) 行距與間距收緊**：章節卡片間距收緊為 `mb-2 px-2.5 py-2`、大標與內容距離收緊為 `mt-1.5`、小標與輸入框距離收緊為 `mb-0.5 leading-tight`、輸入框高度收緊為 `py-1 px-2 text-[13.5px]`；同時保留飯店中文名稱地圖連結提示、`🏨 住宿飯店設定`、`📎 票券 / 文件項目`、備註說明文字與本機資料夾備份說明。
+   * **封面圖片防裁切尺寸建議**（[BasicInfoSection.tsx](file:///d:/AnnaDome/src/components/studio/BasicInfoSection.tsx)、[ProjectHubView.tsx](file:///d:/AnnaDome/src/components/hub/ProjectHubView.tsx)）：標註建議使用橫向寬幅照片（**比例 `16:9` 或 `5:2`，如 `1200×480 px`，主體置中避免上下被裁切**）。
+   * **GitHub Pages 自動部署腳本升級**（[.github/workflows/deploy.yml](file:///d:/AnnaDome/.github/workflows/deploy.yml)）：將 `actions/upload-pages-artifact` 升級至 `@v4` 並設定 `configure-pages@v5` (`enablement: true`)。
 
 ### 4.3 本機資料夾防注音重複生檔、「🗑️ 刪除」切換模式與 10 天刪除暫存區
 1. **防注音半成品檔名與同 ID 舊檔清理**（[localFolderSync.ts](file:///d:/AnnaDome/src/services/localFolderSync.ts)）：

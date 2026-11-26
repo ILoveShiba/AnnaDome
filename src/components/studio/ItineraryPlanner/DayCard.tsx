@@ -45,15 +45,15 @@ export const DayCard: React.FC<DayCardProps> = ({
         setIsDayDraggable(false);
         onDragEndDay?.();
       }}
-      className="border-[1.8px] border-slate-300 bg-[#fbfbfa] rounded-lg p-2.5 mb-3 transition-all"
+      className="border-[1.8px] border-slate-300 bg-[#fbfbfa] rounded-lg p-2 mb-2 transition-all"
     >
-      <div className="flex items-center justify-between bg-slate-100 border border-slate-300 rounded-md px-2.5 py-1.5 mb-2">
+      <div className="flex items-center justify-between bg-slate-100 border border-slate-300 rounded-md px-2 py-1 mb-1.5">
         <span
           onMouseDown={() => setIsDayDraggable(true)}
           onMouseUp={() => setIsDayDraggable(false)}
-          className="text-[13px] font-bold text-[#1a2a3a] cursor-grab select-none inline-flex items-center gap-1"
+          className="text-[12.5px] leading-tight font-bold text-[#1a2a3a] cursor-grab select-none inline-flex items-center gap-1"
         >
-          ☰ 拖曳整天排序 (<span>第 {dayIndex + 1} 天</span>)
+          ☰ Day {dayIndex + 1}
         </span>
 
         <div className="flex items-center gap-1">
@@ -78,23 +78,23 @@ export const DayCard: React.FC<DayCardProps> = ({
           <button
             type="button"
             onClick={() => deleteDay(day.id)}
-            className="bg-red-600 hover:bg-red-700 text-white px-2 py-0.5 rounded text-[11.5px] font-bold cursor-pointer"
+            className="bg-red-600 hover:bg-red-700 text-white px-2 py-0.5 rounded text-[11px] font-bold cursor-pointer"
           >
             刪除此天
           </button>
         </div>
       </div>
 
-      <div className="mb-2">
-        <label className="block text-xs font-bold text-slate-600 mb-1">
-          天數標題 (系統自動推算，亦可直接修改)：
+      <div className="mb-1.5">
+        <label className="block text-[11.5px] leading-tight font-bold text-slate-600 mb-0.5">
+          當日標題：
         </label>
         <input
           type="text"
           value={day.title}
-          placeholder={`例：Day ${dayIndex + 1} (08/15 六)｜抵達東京．景點名稱`}
+          placeholder={`例：Day ${dayIndex + 1} (08/15 六)｜抵達東京．銀座探索`}
           onChange={(e) => updateDayTitle(day.id, e.target.value)}
-          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-md text-sm font-bold bg-white"
+          className="w-full px-2 py-1 border border-slate-300 rounded-md text-[13.5px] leading-snug font-bold bg-white"
         />
       </div>
 
@@ -124,7 +124,7 @@ export const DayCard: React.FC<DayCardProps> = ({
       <button
         type="button"
         onClick={() => addSpot(dayIndex)}
-        className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md text-[12.5px] font-bold cursor-pointer mt-1"
+        className="bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1 rounded-md text-xs font-bold cursor-pointer"
       >
         + 新增景點時段
       </button>

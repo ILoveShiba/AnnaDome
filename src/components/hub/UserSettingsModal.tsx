@@ -147,10 +147,10 @@ export const UserSettingsModal: React.FC = () => {
           <div className="flex items-center gap-2">
             <div>
               <h2 className="font-bold text-slate-900 text-base sm:text-lg">
-                ⚙️ 會員全域資料儲存設定中心
+                ⚙️ 資料儲存設定
               </h2>
               <p className="text-xs text-slate-500">
-                目前登入帳號：<span className="font-bold text-blue-600">{currentUser.username}</span>（所有旅遊專案將自動引用此處的儲存設定）
+                帳號：<span className="font-bold text-blue-600">{currentUser.username}</span>
               </p>
             </div>
           </div>
@@ -179,10 +179,10 @@ export const UserSettingsModal: React.FC = () => {
               }`}
             >
               <div className="flex items-center gap-2 font-bold text-sm text-slate-900 mb-1">
-                <span>💾 1. 自己的本機儲存位置</span>
+                <span>💾 1. 本機儲存</span>
               </div>
               <p className="text-xs text-slate-500 leading-relaxed">
-                儲存在本機瀏覽器，並可綁定電腦資料夾自動同步實體 <code className="bg-slate-100 px-1 rounded">.json</code> 備份檔。
+                儲存於瀏覽器，可綁定電腦資料夾自動同步 <code className="bg-slate-100 px-1 rounded">.json</code> 備份。
               </p>
             </button>
 
@@ -196,10 +196,10 @@ export const UserSettingsModal: React.FC = () => {
               }`}
             >
               <div className="flex items-center gap-2 font-bold text-sm text-slate-900 mb-1">
-                <span>☁️ 2. Firebase 雲端設定位置</span>
+                <span>☁️ 2. Firebase 雲端同步</span>
               </div>
               <p className="text-xs text-slate-500 leading-relaxed">
-                統一於此設定 Firebase 網址，各旅遊專案只需填寫「房間 ID」即可自動雲端同步。
+                綁定個人 Firebase 網址，支援跨裝置自動同步所有旅遊專案。
               </p>
             </button>
           </div>
@@ -210,7 +210,7 @@ export const UserSettingsModal: React.FC = () => {
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-800">
-                📂 本機資料夾直連自動備份（即使在 GitHub Pages 公開網站也可寫入本機硬碟）
+                📂 本機資料夾自動備份
               </span>
               <span
                 className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
@@ -221,7 +221,7 @@ export const UserSettingsModal: React.FC = () => {
               >
                 {settings.localFolderName
                   ? `🟢 已綁定：${settings.localFolderName}`
-                  : '⚪ 尚未綁定資料夾'}
+                  : '⚪ 尚未綁定'}
               </span>
             </div>
 
@@ -236,7 +236,7 @@ export const UserSettingsModal: React.FC = () => {
                 onClick={handleBindLocalFolder}
                 className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
               >
-                <span>📂 選擇／綁定本機自動備份資料夾</span>
+                <span>📂 綁定備份資料夾</span>
               </button>
 
               <button
@@ -245,7 +245,7 @@ export const UserSettingsModal: React.FC = () => {
                 onClick={handleBackupAllToLocalFolder}
                 className="bg-slate-700 hover:bg-slate-800 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
               >
-                <span>💾 立即將所有專案寫入本機資料夾</span>
+                <span>💾 立即寫入資料夾</span>
               </button>
 
               <button
@@ -254,7 +254,7 @@ export const UserSettingsModal: React.FC = () => {
                 onClick={handleRestoreFromLocalFolder}
                 className="bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 px-3 py-2 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
               >
-                <span>🔄 從本機資料夾一鍵還原所有專案</span>
+                <span>🔄 從資料夾還原</span>
               </button>
             </div>
           </div>
@@ -265,7 +265,7 @@ export const UserSettingsModal: React.FC = () => {
           <div className="bg-blue-50/60 border border-blue-200 rounded-xl p-4 mb-4 space-y-3">
             <div>
               <label className="block text-xs font-bold text-blue-950 mb-1">
-                🌐 全域 Firebase Realtime Database 網址：
+                🌐 Firebase Realtime Database 網址：
               </label>
               <input
                 type="text"
@@ -274,9 +274,6 @@ export const UserSettingsModal: React.FC = () => {
                 placeholder="例：https://your-trip-db-default-rtdb.firebaseio.com/"
                 className="w-full px-3 py-2 border border-blue-300 rounded-lg text-sm bg-white focus:border-blue-600 focus:outline-none"
               />
-              <p className="text-[11px] text-slate-600 mt-1">
-                ✨ 設定完成後，您在此帳號下建立的每個旅遊專案都會自動引用此網址，專案內只需填寫「房間 ID」即可！
-              </p>
             </div>
 
             <div className="flex flex-wrap gap-2 pt-1">
@@ -286,7 +283,7 @@ export const UserSettingsModal: React.FC = () => {
                 onClick={handlePushHubToFirebase}
                 className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
               >
-                <span>☁️ 推播大廳全部專案至 Firebase</span>
+                <span>☁️ 推播全部專案至雲端</span>
               </button>
 
               <button
@@ -295,7 +292,7 @@ export const UserSettingsModal: React.FC = () => {
                 onClick={handlePullHubFromFirebase}
                 className="bg-white hover:bg-blue-50 text-blue-700 border border-blue-300 px-3 py-2 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
               >
-                <span>📲 從 Firebase 拉取全部專案至本機</span>
+                <span>📲 從雲端拉取全部專案</span>
               </button>
             </div>
           </div>

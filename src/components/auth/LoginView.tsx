@@ -68,11 +68,11 @@ export const LoginView: React.FC<LoginViewProps> = ({
             <Compass className="w-7 h-7" />
           </div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
-            ✈️ 旅遊手冊管理中心
+            {hasInvite ? '✈️ 旅伴行程共編室' : '✈️ 旅遊手冊管理中心'}
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
             {hasInvite
-              ? '您已受邀共同編輯此旅遊專案，請選擇登入方式'
+              ? '您已受邀共同編輯此旅遊專案，請選擇加入方式'
               : '登入專屬帳號，管理你個人的旅遊專案與全域儲存設定'}
           </p>
         </div>

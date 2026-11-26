@@ -1,3 +1,11 @@
+export interface CollaboratorEntry {
+  userId: string;
+  name: string;
+  role: 'member' | 'guest';
+  joinedAt: string;
+  lastActiveAt: string;
+}
+
 export interface ProjectMeta {
   id: string;
   title: string;
@@ -5,11 +13,13 @@ export interface ProjectMeta {
   endDate: string;   // YYYY-MM-DD
   cover: string;
   updatedAt?: string;
+  companions?: string;
   ownerId?: string;
   ownerName?: string;
   isCoEditing?: boolean;
   isSharedWithMe?: boolean;
   roomId?: string;
+  collaborators?: CollaboratorEntry[];
 }
 
 export interface TrashProjectEntry {
@@ -114,10 +124,12 @@ export interface TravelGuideData {
   // 7. 備註（純文字章節）
   generalNote?: string;
 
-  // 共編擁有者與共編開關識別
+  // 共編擁有者、共編開關與共編人清單
   ownerId?: string;
   ownerName?: string;
   isCoEditing?: boolean;
+  collaborators?: CollaboratorEntry[];
+  kickedCollaboratorIds?: string[];
 
   // 構建版本識別
   buildTime?: string; // ISO String

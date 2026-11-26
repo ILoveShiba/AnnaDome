@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import {
   ProjectMeta,
+  CollaboratorEntry,
   TrashProjectEntry,
   TravelGuideData,
   FlightItem,
@@ -36,6 +37,74 @@ const uid = () =>
   typeof crypto !== 'undefined' && crypto.randomUUID
     ? crypto.randomUUID()
     : 'id_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+
+const ROOM_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+/**
+ * 產生 `trip` 固定開頭 ＋ 4 碼高辨識度大寫英數短代碼（例：tripK8M3）
+ */
+export function generateShortTripCode(existingIds: string[] = []): string {
+  const existingSet = new Set(existingIds.map((id) => id.toLowerCase()));
+  for (let attempt = 0; attempt < 50; attempt++) {
+    let suffix = '';
+    for (let i = 0; i < 4; i++) {
+      const idx = Math.floor(Math.random() * ROOM_CODE_CHARS.length);
+      suffix += ROOM_CODE_CHARS[idx];
+    }
+    const candidate = `trip${suffix}`;
+    if (!existingSet.has(candidate.toLowerCase())) {
+      return candidate;
+    }
+  }
+  return `trip${Date.now().toString(36).slice(-4).toUpperCase()}`;
+}
+
+export function isLegacyLongTripId(roomId?: string): boolean {
+  if (!roomId) return true;
+  return /^trip_\d{10,}/i.test(roomId.trim());
+}
+
+export function upsertCollaboratorEntry(
+  list: CollaboratorEntry[] | undefined,
+  entry: { userId: string; name: string; role: 'member' | 'guest' },
+  ownerId?: string,
+  ownerName?: string
+): CollaboratorEntry[] {
+  const current = Array.isArray(list) ? [...list] : [];
+  // 不將房間主人自己列入「共編人清單」
+  if (
+    (ownerId && entry.userId === ownerId) ||
+    (ownerName && entry.name.trim().toLowerCase() === ownerName.trim().toLowerCase() && entry.role !== 'guest')
+  ) {
+    return current;
+  }
+  const nowIso = new Date().toISOString();
+  const cleanName = entry.name.trim() || '旅伴';
+  const matchKey = `${entry.role}:${cleanName.toLowerCase()}`;
+  const idx = current.findIndex(
+    (c) =>
+      c.userId === entry.userId ||
+      `${c.role}:${(c.name || '').trim().toLowerCase()}` === matchKey
+  );
+  if (idx !== -1) {
+    current[idx] = {
+      ...current[idx],
+      userId: entry.userId,
+      name: cleanName,
+      role: entry.role,
+      lastActiveAt: nowIso,
+    };
+  } else {
+    current.push({
+      userId: entry.userId,
+      name: cleanName,
+      role: entry.role,
+      joinedAt: nowIso,
+      lastActiveAt: nowIso,
+    });
+  }
+  return current;
+}
 
 function getActiveUserId(): string {
   return useAuthStore.getState().currentUser?.userId || 'guest';
@@ -192,11 +261,22 @@ function purgeSampleProjectsIfHasCustomProjects(
 ): ProjectMeta[] {
   let updated = false;
   const normalized = projects.map((p) => {
-    if (isSampleProjectId(p.id) && p.title && !p.title.startsWith('(範例)')) {
+    let nextP = p;
+    const gKey = getGuideKeyForUser(userId, p.id);
+    const gRaw = safeGetStorage(gKey);
+    if (gRaw && p.companions === undefined) {
+      try {
+        const parsedGuide = JSON.parse(gRaw);
+        if (typeof parsedGuide.companions === 'string') {
+          nextP = { ...nextP, companions: parsedGuide.companions.trim() };
+          updated = true;
+        }
+      } catch {}
+    }
+
+    if (isSampleProjectId(nextP.id) && nextP.title && !nextP.title.startsWith('(範例)')) {
       updated = true;
-      const newTitle = `(範例) ${p.title}`;
-      const gKey = getGuideKeyForUser(userId, p.id);
-      const gRaw = safeGetStorage(gKey);
+      const newTitle = `(範例) ${nextP.title}`;
       if (gRaw) {
         try {
           const parsedGuide = JSON.parse(gRaw);
@@ -206,9 +286,9 @@ function purgeSampleProjectsIfHasCustomProjects(
           }
         } catch {}
       }
-      return { ...p, title: newTitle };
+      return { ...nextP, title: newTitle };
     }
-    return p;
+    return nextP;
   });
 
   if (updated) {
@@ -223,6 +303,7 @@ export const DEFAULT_PROJECTS: ProjectMeta[] = [
     title: '(範例) 東京 5 日風格隨身手冊',
     startDate: '2026-11-20',
     endDate: '2026-11-24',
+    companions: 'Anna、Charles',
     cover:
       'https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&w=600&q=80',
   },
@@ -231,6 +312,7 @@ export const DEFAULT_PROJECTS: ProjectMeta[] = [
     title: '(範例) 北海道秋日散策',
     startDate: '2026-12-08',
     endDate: '2026-12-12',
+    companions: 'Anna、Charles',
     cover:
       'https://images.unsplash.com/photo-1542051841857-5f90071e7989?auto=format&fit=crop&w=600&q=80',
   },
@@ -239,6 +321,7 @@ export const DEFAULT_PROJECTS: ProjectMeta[] = [
     title: '(範例) 胡志明市城市漫遊',
     startDate: '2026-04-30',
     endDate: '2026-05-03',
+    companions: 'Anna、Charles',
     cover:
       'https://images.unsplash.com/photo-1583417319070-4a69db38a482?auto=format&fit=crop&w=600&q=80',
   },
@@ -553,6 +636,8 @@ export const createBlankGuideData = (projectId = '', userId = getActiveUserId())
   ownerId: userId,
   ownerName: useAuthStore.getState().currentUser?.username || 'admin',
   isCoEditing: false,
+  collaborators: [],
+  kickedCollaboratorIds: [],
   guideTitle: '',
   guideSubtitle: '',
   guideSummary: '',
@@ -902,6 +987,8 @@ function normalizeGuideData(
     ownerId: raw.ownerId || base.ownerId,
     ownerName: raw.ownerName || base.ownerName,
     isCoEditing: Boolean(raw.isCoEditing),
+    collaborators: Array.isArray(raw.collaborators) ? raw.collaborators : [],
+    kickedCollaboratorIds: Array.isArray(raw.kickedCollaboratorIds) ? raw.kickedCollaboratorIds : [],
     hotels:
       raw.hotels && raw.hotels.length > 0
         ? raw.hotels.map((h) => ({ ...h, id: h.id || uid() }))
@@ -1120,6 +1207,8 @@ export interface GuideState extends TravelGuideData {
   updateProjectCover: (projectId: string, coverUrl: string) => void;
   autoPullHubFromCloudIfConfigured: () => Promise<void>;
   pruneDeletedSharedProjectsForCollaborator: () => Promise<void>;
+  refreshOwnerCoEditingProjectsFromCloud: () => Promise<void>;
+  removeCollaboratorByOwner: (projectId: string, collaboratorUserIdOrName: string) => Promise<void>;
   removeSharedProjectDeletedByOwner: (projectIdOrRoomId: string) => void;
   joinSharedRoomProject: (roomId: string, asGuest?: boolean) => Promise<boolean>;
   createNewBlankTripAndEnter: () => void;
@@ -1239,12 +1328,21 @@ export const useGuideStore = create<GuideState>()((set, get) => {
       s.isCoEditing || existingMeta?.isCoEditing || existingMeta?.isSharedWithMe
     );
 
+    const resolvedCollaborators = Array.isArray(s.collaborators)
+      ? s.collaborators
+      : existingMeta?.collaborators || [];
+    const resolvedKickedIds = Array.isArray(s.kickedCollaboratorIds)
+      ? s.kickedCollaboratorIds
+      : [];
+
     const snapshot: TravelGuideData = {
       firebaseDbUrl: globalFbUrl || s.firebaseDbUrl,
       firebaseRoomId: s.firebaseRoomId || pid,
       ownerId: resolvedOwnerId,
       ownerName: resolvedOwnerName,
       isCoEditing: resolvedIsCoEditing,
+      collaborators: resolvedCollaborators,
+      kickedCollaboratorIds: resolvedKickedIds,
       guideTitle: s.guideTitle,
       guideSubtitle: s.guideSubtitle,
       guideSummary: s.guideSummary,
@@ -1312,11 +1410,13 @@ export const useGuideStore = create<GuideState>()((set, get) => {
       endDate: inferredEnd,
       cover: cleanCover,
       updatedAt: new Date().toISOString(),
+      companions: (s.companions || '').trim(),
       ownerId: resolvedOwnerId,
       ownerName: resolvedOwnerName,
       isCoEditing: resolvedIsCoEditing,
       isSharedWithMe: Boolean(existingMeta?.isSharedWithMe),
       roomId: s.firebaseRoomId || existingMeta?.roomId || pid,
+      collaborators: resolvedCollaborators,
     };
 
     if (existingIdx !== -1) {
@@ -1457,6 +1557,12 @@ export const useGuideStore = create<GuideState>()((set, get) => {
           loadedData.isCoEditing = true;
         }
         if (projectMeta.roomId) loadedData.firebaseRoomId = projectMeta.roomId;
+        if (
+          projectMeta.collaborators &&
+          (!loadedData.collaborators || loadedData.collaborators.length === 0)
+        ) {
+          loadedData.collaborators = projectMeta.collaborators;
+        }
       }
 
       loadedData.firebaseDbUrl = getGlobalFirebaseUrlForUser(userId);
@@ -1502,6 +1608,12 @@ export const useGuideStore = create<GuideState>()((set, get) => {
           loadedData.isCoEditing = true;
         }
         if (projectMeta.roomId) loadedData.firebaseRoomId = projectMeta.roomId;
+        if (
+          projectMeta.collaborators &&
+          (!loadedData.collaborators || loadedData.collaborators.length === 0)
+        ) {
+          loadedData.collaborators = projectMeta.collaborators;
+        }
       }
 
       loadedData.firebaseDbUrl = getGlobalFirebaseUrlForUser(userId);
@@ -1596,8 +1708,130 @@ export const useGuideStore = create<GuideState>()((set, get) => {
           }
         }
       } catch {}
-      // 同步巡檢受邀共編的他人專案是否已被原主人刪除
+      // 同步巡檢受邀共編的他人專案是否已被原主人刪除，並同步更新主人端共編專案的最新共編人清單
       await get().pruneDeletedSharedProjectsForCollaborator();
+      await get().refreshOwnerCoEditingProjectsFromCloud();
+    },
+
+    refreshOwnerCoEditingProjectsFromCloud: async () => {
+      const user = useAuthStore.getState().currentUser;
+      if (!user || user.role === 'guest') return;
+      const currentProjects = get().projects;
+      const ownerCoEditProjects = currentProjects.filter(
+        (p) => !p.isSharedWithMe && Boolean(p.isCoEditing)
+      );
+      if (ownerCoEditProjects.length === 0) return;
+
+      let changed = false;
+      const updatedMap = new Map<string, CollaboratorEntry[]>();
+
+      await Promise.all(
+        ownerCoEditProjects.map(async (proj) => {
+          const roomId = (proj.roomId || proj.id || '').trim();
+          if (!roomId) return;
+          try {
+            const endpoint = getSharedRoomEndpointUrl(
+              roomId,
+              getGlobalFirebaseUrlForUser(user.userId)
+            );
+            const res = await fetch(endpoint);
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data?.state && Array.isArray(data.state.collaborators)) {
+              const cloudList: CollaboratorEntry[] = data.state.collaborators;
+              const localList = proj.collaborators || [];
+              if (JSON.stringify(cloudList) !== JSON.stringify(localList)) {
+                updatedMap.set(proj.id, cloudList);
+                changed = true;
+                // 同步更新本機 guideData 內的 collaborators
+                const gKey = getGuideKeyForUser(user.userId, proj.id);
+                const gRaw = safeGetStorage(gKey);
+                if (gRaw) {
+                  try {
+                    const parsed = JSON.parse(gRaw);
+                    parsed.collaborators = cloudList;
+                    safeSetStorage(gKey, JSON.stringify(parsed));
+                  } catch {}
+                }
+              }
+            }
+          } catch {}
+        })
+      );
+
+      if (changed) {
+        const nextProjects = get().projects.map((p) =>
+          updatedMap.has(p.id) ? { ...p, collaborators: updatedMap.get(p.id) } : p
+        );
+        safeSetStorage(getHubKeyForUser(user.userId), JSON.stringify(nextProjects));
+        const activePid = get().currentProjectId;
+        if (activePid && updatedMap.has(activePid)) {
+          set({
+            projects: nextProjects,
+            collaborators: updatedMap.get(activePid),
+          });
+        } else {
+          set({ projects: nextProjects });
+        }
+      }
+    },
+
+    removeCollaboratorByOwner: async (projectId, collaboratorKey) => {
+      const userId = getActiveUserId();
+      const username = useAuthStore.getState().currentUser?.username || 'admin';
+      const targetMeta = get().projects.find((p) => p.id === projectId);
+      if (!targetMeta || targetMeta.isSharedWithMe) return;
+
+      const filterFn = (c: CollaboratorEntry) =>
+        c.userId !== collaboratorKey && c.name !== collaboratorKey;
+
+      const nextCollabs = (targetMeta.collaborators || []).filter(filterFn);
+      const nextProjects = get().projects.map((p) =>
+        p.id === projectId ? { ...p, collaborators: nextCollabs } : p
+      );
+      safeSetStorage(getHubKeyForUser(userId), JSON.stringify(nextProjects));
+
+      const gKey = getGuideKeyForUser(userId, projectId);
+      const gRaw = safeGetStorage(gKey);
+      let updatedGuide: TravelGuideData | null = null;
+      if (gRaw) {
+        try {
+          const parsed: TravelGuideData = JSON.parse(gRaw);
+          parsed.collaborators = (parsed.collaborators || []).filter(filterFn);
+          const kickedSet = new Set(parsed.kickedCollaboratorIds || []);
+          kickedSet.add(collaboratorKey);
+          parsed.kickedCollaboratorIds = Array.from(kickedSet);
+          parsed.buildTime = new Date().toISOString();
+          safeSetStorage(gKey, JSON.stringify(parsed));
+          updatedGuide = parsed;
+        } catch {}
+      }
+
+      if (get().currentProjectId === projectId) {
+        const currentKicked = new Set(get().kickedCollaboratorIds || []);
+        currentKicked.add(collaboratorKey);
+        set({
+          projects: nextProjects,
+          collaborators: nextCollabs,
+          kickedCollaboratorIds: Array.from(currentKicked),
+          buildTime: new Date().toISOString(),
+        });
+      } else {
+        set({ projects: nextProjects });
+      }
+
+      // 立即將更新後的共編人清單同步推上 /shared_rooms/<roomId>.json
+      const roomId = (targetMeta.roomId || projectId).trim();
+      if (roomId && updatedGuide) {
+        await restoreSharedRoomByOwner(
+          roomId,
+          updatedGuide,
+          userId,
+          username,
+          getGlobalFirebaseUrlForUser(userId)
+        );
+      }
+      scheduleAutoPushHubToFirebase(userId, username, nextProjects, true);
     },
 
     pruneDeletedSharedProjectsForCollaborator: async () => {
@@ -1617,8 +1851,13 @@ export const useGuideStore = create<GuideState>()((set, get) => {
             const res = await fetch(endpoint);
             if (!res.ok) return;
             const data = await res.json();
-            // 若雲端節點為 null（已被主人永久刪除）或標記 deletedByOwner === true（已被主人移入刪除暫存區）
-            if (!data || data.deletedByOwner === true || !data.state) {
+            // 若雲端節點為 null（已被主人永久刪除）、標記 deletedByOwner === true，或自己已被主人從共編人清單移除
+            const kickedList: string[] = Array.isArray(data?.state?.kickedCollaboratorIds)
+              ? data.state.kickedCollaboratorIds
+              : [];
+            const isKicked =
+              kickedList.includes(user.userId) || kickedList.includes(user.username);
+            if (!data || data.deletedByOwner === true || !data.state || isKicked) {
               deletedIds.add(proj.id);
             }
           } catch {}
@@ -1761,6 +2000,39 @@ export const useGuideStore = create<GuideState>()((set, get) => {
       loadedData.ownerId = isOwner ? userId : cloudOwnerId || 'shared_owner';
       loadedData.ownerName = isOwner ? username : cloudOwnerName;
 
+      // 若非房間主人（即受邀共編的會員或訪客），自動將自己登記進此專案的共編人清單並寫回雲端
+      if (!isOwner) {
+        const currentRole: 'member' | 'guest' = asGuest ? 'guest' : 'member';
+        loadedData.collaborators = upsertCollaboratorEntry(
+          loadedData.collaborators,
+          {
+            userId,
+            name: username,
+            role: currentRole,
+          },
+          loadedData.ownerId,
+          loadedData.ownerName
+        );
+        // 若此人先前曾被移除但重新持連結進入，從 kickedCollaboratorIds 解除
+        if (Array.isArray(loadedData.kickedCollaboratorIds)) {
+          loadedData.kickedCollaboratorIds = loadedData.kickedCollaboratorIds.filter(
+            (k) => k !== userId && k !== username
+          );
+        }
+        try {
+          const nowIso = new Date().toISOString();
+          await fetch(sharedEndpoint, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              state: { ...loadedData, firebaseDbUrl: '' },
+              updatedAt: nowIso,
+              updatedBy: username,
+            }),
+          });
+        } catch {}
+      }
+
       // 絕不暴露底層 Firebase 網址給訪客或一般會員
       loadedData.firebaseDbUrl = getGlobalFirebaseUrlForUser(userId);
 
@@ -1789,11 +2061,13 @@ export const useGuideStore = create<GuideState>()((set, get) => {
           loadedData.coverUrl ||
           'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=600&q=80',
         updatedAt: new Date().toISOString(),
+        companions: (loadedData.companions || '').trim(),
         ownerId: loadedData.ownerId,
         ownerName: loadedData.ownerName,
         isCoEditing: true,
         isSharedWithMe: !isOwner,
         roomId: cleanRoom,
+        collaborators: loadedData.collaborators || [],
       };
 
       const targetProjectId = newMeta.id;
@@ -1825,7 +2099,8 @@ export const useGuideStore = create<GuideState>()((set, get) => {
     createNewBlankTripAndEnter: () => {
       const userId = getActiveUserId();
       const username = useAuthStore.getState().currentUser?.username || 'guest';
-      const newId = 'trip_' + Date.now();
+      const existingIds = get().projects.flatMap((p) => [p.id, p.roomId || '']);
+      const newId = generateShortTripCode(existingIds);
       const today = new Date().toISOString().split('T')[0];
       const blank = createBlankGuideData(newId, userId);
       blank.startDate = today;
@@ -2115,8 +2390,12 @@ export const useGuideStore = create<GuideState>()((set, get) => {
     importProjectToHubFromJSON: (raw, fallbackFileName = '匯入的旅程') => {
       const userId = getActiveUserId();
       const username = useAuthStore.getState().currentUser?.username || 'guest';
-      const newId = 'trip_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+      const existingIds = get().projects.flatMap((p) => [p.id, p.roomId || '']);
+      const newId = generateShortTripCode(existingIds);
       const normalized = normalizeGuideData(raw, newId, userId);
+      if (isLegacyLongTripId(normalized.firebaseRoomId)) {
+        normalized.firebaseRoomId = newId;
+      }
       const title = (normalized.guideTitle || '').trim() || fallbackFileName;
       normalized.guideTitle = title;
 
@@ -2130,6 +2409,7 @@ export const useGuideStore = create<GuideState>()((set, get) => {
           normalized.coverUrl ||
           'https://images.unsplash.com/photo-1542051841857-5f90071e7989?auto=format&fit=crop&w=600&q=80',
         updatedAt: new Date().toISOString(),
+        companions: (normalized.companions || '').trim(),
       };
 
       const rawNextProjects = [newMeta, ...get().projects];
@@ -2583,6 +2863,8 @@ export const useGuideStore = create<GuideState>()((set, get) => {
         ownerId: s.ownerId || userId,
         ownerName: s.ownerName || useAuthStore.getState().currentUser?.username || 'admin',
         isCoEditing: Boolean(s.isCoEditing),
+        collaborators: Array.isArray(s.collaborators) ? s.collaborators : [],
+        kickedCollaboratorIds: Array.isArray(s.kickedCollaboratorIds) ? s.kickedCollaboratorIds : [],
         guideTitle: s.guideTitle,
         guideSubtitle: s.guideSubtitle,
         guideSummary: s.guideSummary,

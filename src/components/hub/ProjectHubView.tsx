@@ -10,6 +10,17 @@ import {
 type HubSortField = 'startDate' | 'title';
 type HubSortOrder = 'asc' | 'desc';
 
+function computeTripDurationBadge(startDate?: string, endDate?: string): string | null {
+  if (!startDate || !endDate) return null;
+  const s = new Date(startDate);
+  const e = new Date(endDate);
+  if (isNaN(s.getTime()) || isNaN(e.getTime())) return null;
+  const diffDays = Math.round((e.getTime() - s.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+  if (diffDays <= 0) return null;
+  if (diffDays === 1) return '1 日遊';
+  return `${diffDays}天${diffDays - 1}夜`;
+}
+
 export const ProjectHubView: React.FC = () => {
   const projects = useGuideStore((s) => s.projects);
   const trashedProjects = useGuideStore((s) => s.trashedProjects);
@@ -29,6 +40,9 @@ export const ProjectHubView: React.FC = () => {
   );
   const pruneDeletedSharedProjectsForCollaborator = useGuideStore(
     (s) => s.pruneDeletedSharedProjectsForCollaborator
+  );
+  const refreshOwnerCoEditingProjectsFromCloud = useGuideStore(
+    (s) => s.refreshOwnerCoEditingProjectsFromCloud
   );
 
   const currentUser = useAuthStore((s) => s.currentUser);
@@ -52,23 +66,26 @@ export const ProjectHubView: React.FC = () => {
   const [isCompressingCover, setIsCompressingCover] = useState<boolean>(false);
   const coverUploadInputRef = useRef<HTMLInputElement>(null);
 
-  // 登入或進入大廳時，若該帳號已設定 Firebase 雲端網址，自動拉取最新專案與封面圖片，並自動巡檢受邀共編專案是否已被主人刪除
+  // 登入或進入大廳時，若該帳號已設定 Firebase 雲端網址，自動拉取最新專案與封面圖片，並自動巡檢受邀共編專案與主人端共編人清單
   useEffect(() => {
     if (currentUser && activeView === 'hub') {
       autoPullHubFromCloudIfConfigured();
       pruneDeletedSharedProjectsForCollaborator();
+      refreshOwnerCoEditingProjectsFromCloud();
     }
   }, [currentUser?.userId, activeView]);
 
-  // 在大廳視窗重新獲得焦點或每 15 秒定期巡檢「受邀參與的他人共編專案」是否已被原主人刪除
+  // 在大廳視窗重新獲得焦點或每 15 秒定期巡檢「受邀參與的他人共編專案」與主人端的「共編人清單」
   useEffect(() => {
     if (!currentUser || activeView !== 'hub') return;
     const onFocus = () => {
       pruneDeletedSharedProjectsForCollaborator();
+      refreshOwnerCoEditingProjectsFromCloud();
     };
     window.addEventListener('focus', onFocus);
     const timer = window.setInterval(() => {
       pruneDeletedSharedProjectsForCollaborator();
+      refreshOwnerCoEditingProjectsFromCloud();
     }, 15000);
     return () => {
       window.removeEventListener('focus', onFocus);
@@ -211,12 +228,12 @@ export const ProjectHubView: React.FC = () => {
         </div>
 
         <div className="p-4 flex-1 flex flex-col">
-          {/* 共編房間主人端的大廳卡片：呈現一個【共編中】的提醒小視窗 */}
+          {/* 共編房間主人端的大廳卡片：僅呈現精簡的【共編中】提醒小視窗（共編人清單統一收在編輯器內） */}
           {isOwnerCoEditing && (
             <div className="mb-2.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-between gap-2 text-xs">
               <span className="font-bold text-emerald-800 inline-flex items-center gap-1">
                 <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>【共編中】旅伴共同編輯已開啟</span>
+                <span>【共編中】</span>
               </span>
               <span className="text-[11px] font-mono text-emerald-700 bg-emerald-100/80 px-1.5 py-0.5 rounded">
                 ID: {project.roomId || project.id}
@@ -239,9 +256,25 @@ export const ProjectHubView: React.FC = () => {
           <div className="text-[1.1rem] font-bold text-slate-900 mb-1.5 line-clamp-1">
             {project.title}
           </div>
-          <div className="text-[0.85rem] text-slate-500 mb-4">
-            📅 {project.startDate || '未定'} ~ {project.endDate || '未定'}
+
+          <div className="flex flex-wrap items-center gap-1.5 text-[0.83rem] text-slate-500 mb-1.5">
+            <span>
+              📅 {project.startDate || '未定'} ~ {project.endDate || '未定'}
+            </span>
+            {computeTripDurationBadge(project.startDate, project.endDate) && (
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                {computeTripDurationBadge(project.startDate, project.endDate)}
+              </span>
+            )}
           </div>
+
+          {project.companions && project.companions.trim() ? (
+            <div className="text-xs text-slate-600 mb-3.5 line-clamp-1">
+              👥 旅伴：{project.companions.trim()}
+            </div>
+          ) : (
+            <div className="mb-2.5" />
+          )}
 
           <div className="mt-auto flex items-center gap-2">
             {/* 籌備中專案或受邀共編專案皆可點擊編輯行程 */}
@@ -306,15 +339,15 @@ export const ProjectHubView: React.FC = () => {
             <span className="inline-flex items-center gap-1 text-slate-300">
               {settings.storageMode === 'firebase' ? (
                 <span>
-                  ☁️ 儲存模式：Firebase 雲端{' '}
-                  {settings.firebaseDbUrl ? '(已設定網址)' : '(尚未填寫網址)'}
+                  ☁️ 雲端儲存{' '}
+                  {settings.firebaseDbUrl ? '(已連線)' : '(未設定)'}
                 </span>
               ) : (
                 <span>
-                  💾 儲存模式：本機儲存{' '}
+                  💾 本機儲存{' '}
                   {settings.localFolderName
-                    ? `(已綁定資料夾：${settings.localFolderName})`
-                    : '(瀏覽器 LocalStorage)'}
+                    ? `(${settings.localFolderName})`
+                    : ''}
                 </span>
               )}
             </span>
@@ -326,7 +359,7 @@ export const ProjectHubView: React.FC = () => {
               onClick={() => setSettingsModalOpen(true)}
               className="bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
             >
-              <span>⚙️ 設定 (儲存位置 / Firebase)</span>
+              <span>⚙️ 設定</span>
             </button>
 
             <button
@@ -340,27 +373,24 @@ export const ProjectHubView: React.FC = () => {
         </div>
 
         {/* 頂部標題列 */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-8">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-7">
           <div>
             <h1 className="text-2xl sm:text-[1.6rem] font-bold text-slate-900 flex items-center gap-2">
               <span>✈️ 旅遊手冊管理中心</span>
             </h1>
-            <p className="text-xs text-slate-500 mt-0.5">
-              僅顯示帳號「{currentUser?.username}」專屬存取權限的旅遊專案
-            </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
             {/* 專案排序下拉選單與正序／倒序切換 */}
             <div className="flex items-center gap-1.5 bg-white border-[1.5px] border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700">
-              <span className="text-slate-500">🔃 排序依據：</span>
+              <span className="text-slate-500">🔃 排序：</span>
               <select
                 value={sortField}
                 onChange={(e) => setSortField(e.target.value as HubSortField)}
                 className="bg-transparent font-bold text-slate-800 focus:outline-none cursor-pointer"
               >
-                <option value="startDate">依出發日期</option>
-                <option value="title">依手冊大標題</option>
+                <option value="startDate">出發日期</option>
+                <option value="title">手冊標題</option>
               </select>
               <span className="text-slate-300">|</span>
               <select
@@ -369,10 +399,10 @@ export const ProjectHubView: React.FC = () => {
                 className="bg-transparent font-bold text-blue-700 focus:outline-none cursor-pointer"
               >
                 <option value="asc">
-                  {sortField === 'startDate' ? '正序（由近到遠）' : '正序（A → Z / 筆畫）'}
+                  {sortField === 'startDate' ? '由近到遠' : 'A → Z'}
                 </option>
                 <option value="desc">
-                  {sortField === 'startDate' ? '倒序（由遠到近）' : '倒序（Z → A / 筆畫）'}
+                  {sortField === 'startDate' ? '由遠到近' : 'Z → A'}
                 </option>
               </select>
             </div>
@@ -387,9 +417,9 @@ export const ProjectHubView: React.FC = () => {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="bg-white text-slate-700 border-[1.5px] border-slate-300 hover:bg-slate-100 hover:border-slate-400 px-4 py-2.5 rounded-lg font-semibold text-sm inline-flex items-center gap-1.5 transition-all cursor-pointer"
+              className="bg-white text-slate-700 border-[1.5px] border-slate-300 hover:bg-slate-100 hover:border-slate-400 px-3.5 py-2 rounded-lg font-semibold text-xs sm:text-sm inline-flex items-center gap-1.5 transition-all cursor-pointer"
             >
-              <span>📤 匯入舊專案 JSON</span>
+              <span>📤 匯入 JSON</span>
             </button>
 
             {projects.length > 0 && (
@@ -434,24 +464,22 @@ export const ProjectHubView: React.FC = () => {
           </div>
         )}
 
-        {/* 受邀參與的他人共編專案（區分他人擁有的專案 vs 個人專案） */}
-        <div className="text-[1.15rem] font-semibold mt-9 mb-4 flex items-center gap-2 text-indigo-900">
-          <span>🤝 受邀參與的他人共編專案</span>
-          <span className="text-xs bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded-full font-bold">
-            {sharedWithMeProjects.length}
-          </span>
-        </div>
+        {/* 共編專案（有受邀共編專案時才自動顯示此區塊，無資料時自動隱藏避免版面冗長） */}
+        {sharedWithMeProjects.length > 0 && (
+          <>
+            <div className="text-[1.15rem] font-semibold mt-9 mb-4 flex items-center gap-2 text-indigo-900">
+              <span>🤝 共編專案</span>
+              <span className="text-xs bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded-full font-bold">
+                {sharedWithMeProjects.length}
+              </span>
+            </div>
 
-        {sharedWithMeProjects.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {sharedWithMeProjects.map((p) =>
-              renderCard(p, Boolean(p.endDate && p.endDate < today))
-            )}
-          </div>
-        ) : (
-          <div className="bg-indigo-50/40 border border-dashed border-indigo-200 rounded-xl p-6 text-center text-slate-400 text-sm">
-            目前尚無受邀參與的他人共編專案（當您點擊旅伴分享的專屬共編連結並以帳號登入時，該專案將自動歸類於此區塊）
-          </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {sharedWithMeProjects.map((p) =>
+                renderCard(p, Boolean(p.endDate && p.endDate < today))
+              )}
+            </div>
+          </>
         )}
 
         {/* 典藏回憶｜已完成專案 */}
@@ -472,7 +500,7 @@ export const ProjectHubView: React.FC = () => {
           </div>
         )}
 
-        {/* 刪除暫存區（保留 10 天後自動永久刪除） */}
+        {/* 刪除暫存區 */}
         <details
           open={trashedProjects.length > 0}
           className="mt-10 bg-white border border-rose-200 rounded-xl overflow-hidden shadow-2xs"
@@ -480,7 +508,7 @@ export const ProjectHubView: React.FC = () => {
           <summary className="px-4 py-3 bg-rose-50/70 border-b border-rose-100 flex flex-wrap items-center justify-between gap-2 cursor-pointer select-none">
             <div className="flex items-center gap-2">
               <span className="text-base font-bold text-rose-900">
-                🗑️ 刪除暫存區（保留 10 天後自動永久刪除）
+                🗑️ 刪除暫存區
               </span>
               <span className="text-xs font-bold bg-rose-200 text-rose-900 px-2.5 py-0.5 rounded-full">
                 {trashedProjects.length}
@@ -570,8 +598,8 @@ export const ProjectHubView: React.FC = () => {
                 })}
               </div>
             ) : (
-              <div className="text-center text-slate-400 text-xs py-3">
-                目前暫存區沒有已刪除的專案（刪除的專案與本機 JSON 檔案會在此保留 10 天以防誤刪）
+              <div className="text-center text-slate-400 text-xs py-2">
+                目前沒有已刪除的專案（刪除的專案會在此保留 10 天）
               </div>
             )}
           </div>
@@ -630,10 +658,10 @@ export const ProjectHubView: React.FC = () => {
             {/* 方式一：從電腦或手機上傳照片 */}
             <div className="mb-4 bg-blue-50/60 border border-blue-200 rounded-xl p-3.5">
               <div className="text-xs font-bold text-blue-950 mb-1">
-                📁 方式 1：從電腦／手機上傳照片（自動壓縮存入 JSON 與 Firebase 雲端）
+                📁 方式 1：上傳本機照片（自動壓縮並同步雲端）
               </div>
-              <p className="text-[11px] text-slate-600 mb-2.5">
-                上傳的照片會自動最佳化並內嵌至專案資料與 Firebase 資料庫中，換另一台電腦或瀏覽器登入也能直接看到照片！
+              <p className="text-[11px] text-slate-600 mb-2">
+                💡 建議尺寸：橫向照片（比例 16:9 或 5:2，如 1200×480 px），主體置中即可避免上下被裁切。
               </p>
               <input
                 ref={coverUploadInputRef}
@@ -661,7 +689,7 @@ export const ProjectHubView: React.FC = () => {
                 onClick={() => coverUploadInputRef.current?.click()}
                 className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3.5 py-2 rounded-lg text-xs font-bold cursor-pointer inline-flex items-center gap-1.5 shadow-2xs"
               >
-                <span>{isCompressingCover ? '⏳ 正在壓縮處理照片...' : '📁 選擇本機照片上傳'}</span>
+                <span>{isCompressingCover ? '⏳ 處理中...' : '📁 選擇照片上傳'}</span>
               </button>
             </div>
 

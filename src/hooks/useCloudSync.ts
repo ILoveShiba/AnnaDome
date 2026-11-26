@@ -1,5 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useGuideStore } from '../store/useGuideStore';
+import {
+  useGuideStore,
+  upsertCollaboratorEntry,
+} from '../store/useGuideStore';
 import {
   useAuthStore,
   ADMIN_DEFAULT_FIREBASE_DB_URL,
@@ -70,13 +73,31 @@ export const useCloudSync = (localBuildTime: string) => {
           ? PRESET_COVERS[0]
           : currentState.coverUrl;
 
+      const resolvedOwnerId = currentState.ownerId || currentUser?.userId || 'u_admin';
+      const resolvedOwnerName = currentState.ownerName || currentUser?.username || '主揪';
+
+      // 若推播者是受邀共編者（會員或訪客），自動在 collaborators 陣列中更新自己的最後共編時間
+      const updatedCollaborators = isCollaboratorOrGuest
+        ? upsertCollaboratorEntry(
+            currentState.collaborators,
+            {
+              userId: currentUser?.userId || 'guest',
+              name: currentUser?.username || '旅伴',
+              role: currentUser?.role === 'guest' ? 'guest' : 'member',
+            },
+            resolvedOwnerId,
+            resolvedOwnerName
+          )
+        : currentState.collaborators || [];
+
       const sanitizedState = {
         ...currentState,
         firebaseDbUrl: '', // 絕不在共編封包中暴露任何人的 Firebase 網址
         coverUrl: safeCoverUrl,
         isCoEditing: true,
-        ownerId: currentState.ownerId || currentUser?.userId || 'u_admin',
-        ownerName: currentState.ownerName || currentUser?.username || '主揪',
+        ownerId: resolvedOwnerId,
+        ownerName: resolvedOwnerName,
+        collaborators: updatedCollaborators,
       };
 
       const nowIso = new Date().toISOString();
@@ -131,6 +152,25 @@ export const useCloudSync = (localBuildTime: string) => {
             logout();
           } else {
             alert('⚠️ 專案主人已刪除此共編專案，系統已自動從您的大廳移除此專案。');
+            removeSharedProjectDeletedByOwner(roomOrPid || '');
+          }
+          return;
+        }
+
+        // 若受邀共編者（或訪客）被專案主人從「共編人清單」中移除
+        if (
+          isCollaboratorOrGuest &&
+          Array.isArray(data?.state?.kickedCollaboratorIds) &&
+          (data.state.kickedCollaboratorIds.includes(currentUser?.userId) ||
+            data.state.kickedCollaboratorIds.includes(currentUser?.username))
+        ) {
+          isApplyingCloudRef.current = true;
+          const roomOrPid = currentProjectId || firebaseRoomId;
+          if (currentUser?.role === 'guest') {
+            alert('⚠️ 您已被專案主人移出此共編房間。');
+            logout();
+          } else {
+            alert('⚠️ 您已被專案主人移出此共編房間，系統已從您的大廳移除此專案。');
             removeSharedProjectDeletedByOwner(roomOrPid || '');
           }
           return;
